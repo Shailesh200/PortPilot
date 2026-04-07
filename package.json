@@ -1,6 +1,6 @@
 {
   "name": "port-pilot",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "A premium developer utility for managing local ports, processes, and development workflows",
   "main": "./out/main/index.js",
   "scripts": {
@@ -37,7 +37,8 @@
     "publish": {
       "provider": "github",
       "owner": "Shailesh200",
-      "repo": "PortPilot"
+      "repo": "PortPilot",
+      "releaseType": "release"
     },
     "extraResources": [
       {
