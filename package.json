@@ -21,7 +21,7 @@
         "zip"
       ],
       "icon": "resources/icon.png",
-      "identity": null
+      "identity": "-"
     },
     "win": {
       "target": [
