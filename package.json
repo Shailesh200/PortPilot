@@ -1,6 +1,6 @@
 {
   "name": "port-pilot",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "description": "A premium developer utility for managing local ports, processes, and development workflows",
   "main": "./out/main/index.js",
   "scripts": {
@@ -16,12 +16,17 @@
     "asar": true,
     "mac": {
       "category": "public.app-category.developer-tools",
-      "target": ["dmg", "zip"],
+      "target": [
+        "dmg",
+        "zip"
+      ],
       "icon": "resources/icon.png",
       "identity": null
     },
     "win": {
-      "target": ["nsis"],
+      "target": [
+        "nsis"
+      ],
       "icon": "resources/icon.ico"
     },
     "nsis": {
@@ -41,7 +46,9 @@
       {
         "from": "resources/",
         "to": "resources/",
-        "filter": ["**/*"]
+        "filter": [
+          "**/*"
+        ]
       }
     ]
   },
