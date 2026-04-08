@@ -19,7 +19,8 @@ import {
   Check,
   Minus,
   X,
-  Star
+  Star,
+  UserPlus
 } from 'lucide-react'
 import { clsx } from 'clsx'
 import type { PortInfo } from '../../../shared/types'
@@ -104,6 +105,9 @@ function ActionMenu({
   const confirmDestructive = useSettingsStore((s) => s.confirmDestructive)
   const protectSystemPorts = useSettingsStore((s) => s.protectSystemPorts)
   const showConfirm = useUIStore((s) => s.showConfirm)
+  const profiles = useSettingsStore((s) => s.profiles)
+  const addPortToProfile = useSettingsStore((s) => s.addPortToProfile)
+  const reapplyFiltersAndSort = usePortStore((s) => s.reapplyFiltersAndSort)
 
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
@@ -178,6 +182,22 @@ function ActionMenu({
         onClose()
       }
     },
+    ...profiles.map((pr) => ({
+      id: `add-prof-${pr.id}-${port.port}`,
+      label: `Add :${port.port} to ${pr.name}`,
+      icon: UserPlus,
+      className: 'hover:bg-accent/10 text-text-secondary hover:text-accent',
+      handler: () => {
+        addPortToProfile(pr.id, port.port)
+        reapplyFiltersAndSort()
+        addToast({
+          type: 'success',
+          title: 'Profile updated',
+          message: `Port ${port.port} added to ${pr.name}`
+        })
+        onClose()
+      }
+    })),
     { id: 'divider-1' },
     {
       id: 'restart',
@@ -192,9 +212,9 @@ function ActionMenu({
           const result = await restartPort(port.pid, port.projectPath)
           addToast({
             type: result.success ? 'success' : 'error',
-            title: result.success ? 'Restarting in Terminal' : 'Restart Failed',
+            title: result.success ? 'Process restarted' : 'Restart Failed',
             message: result.success
-              ? `Port ${port.port} — command re-launched`
+              ? result.hint || `Port ${port.port} — command re-launched`
               : result.error || 'Unknown error'
           })
         }

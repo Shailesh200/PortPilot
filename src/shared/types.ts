@@ -73,6 +73,11 @@ export interface AppSettings {
 
 export type ViewType = 'dashboard' | 'heatmap' | 'logs' | 'settings'
 
+export interface ProfilesPersistState {
+  profiles: Profile[]
+  activeProfileId: string | null
+}
+
 export interface IpcApi {
   getPorts: () => Promise<PortInfo[]>
   getProcessDetails: (pid: number) => Promise<ProcessDetails | null>
@@ -82,9 +87,16 @@ export interface IpcApi {
   openInBrowser: (port: number) => Promise<void>
   openInTerminal: (pid: number, projectPath?: string) => Promise<void>
   openInVSCode: (pid: number, projectPath?: string) => Promise<void>
-  restartProcess: (pid: number, projectPath?: string) => Promise<{ success: boolean; error?: string }>
+  restartProcess: (pid: number, projectPath?: string) => Promise<{
+    success: boolean
+    error?: string
+    hint?: string
+  }>
   updatePollInterval: (intervalMs: number) => Promise<void>
   updateGlobalShortcut: (shortcut: string) => Promise<boolean>
+  loadProfiles: () => Promise<ProfilesPersistState>
+  saveProfiles: (state: ProfilesPersistState) => Promise<boolean>
   onPortsUpdate: (callback: (ports: PortInfo[]) => void) => () => void
   onFocusSearch: (callback: () => void) => () => void
+  onProfilesChanged: (callback: () => void) => () => void
 }

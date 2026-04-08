@@ -489,12 +489,19 @@ function SafetySettings() {
         const { profiles, activeProfileId, ...settings } = data
         updateSettings(settings)
         if (Array.isArray(profiles)) {
-          const store = useSettingsStore.getState()
-          for (const p of store.profiles) store.removeProfile(p.id)
-          for (const p of profiles) store.addProfile(p)
-        }
-        if (activeProfileId !== undefined) {
-          useSettingsStore.getState().setActiveProfile(activeProfileId)
+          const aid =
+            activeProfileId === null || typeof activeProfileId === 'string'
+              ? activeProfileId
+              : null
+          useSettingsStore.getState().applyLoadedProfiles(profiles, aid)
+          void window.api.saveProfiles({ profiles, activeProfileId: aid })
+          const pr = aid && profiles.find((p: { id: string }) => p.id === aid)
+          if (pr?.favoritePorts) {
+            usePortStore.getState().setProfileFilter(pr.favoritePorts)
+          } else {
+            usePortStore.getState().setProfileFilter([])
+          }
+          usePortStore.getState().reapplyFiltersAndSort()
         }
         addToast({
           type: 'success',
@@ -630,6 +637,7 @@ const PROFILE_ICONS = ['🎨', '⚙️', '🗄️', '🌐', '🧪', '📦', '�
 function ProfilesSettings() {
   const { profiles, activeProfileId, addProfile, removeProfile, setActiveProfile } =
     useSettingsStore()
+  const setProfileFilter = usePortStore((s) => s.setProfileFilter)
   const { addToast } = useUIStore()
   const [isCreating, setIsCreating] = useState(false)
   const [newName, setNewName] = useState('')
@@ -662,8 +670,9 @@ function ProfilesSettings() {
     <div>
       <SectionHeader title="Developer Profiles" />
       <p className="text-xs text-text-muted mb-4">
-        Save port configurations for different workflows. The active profile
-        highlights its favorite ports in the dashboard.
+        Favorite ports define which rows rise to the top and which ports are shown
+        when a profile is active. Add ports from the dashboard actions menu or
+        the menu bar. Empty favorites = show all ports when active.
       </p>
 
       <div className="space-y-2">
@@ -691,11 +700,15 @@ function ProfilesSettings() {
             </div>
             <div className="flex items-center gap-1.5">
               <button
-                onClick={() =>
-                  setActiveProfile(
-                    activeProfileId === profile.id ? null : profile.id
-                  )
-                }
+                onClick={() => {
+                  const next = activeProfileId === profile.id ? null : profile.id
+                  setActiveProfile(next)
+                  if (next) {
+                    setProfileFilter(profile.favoritePorts)
+                  } else {
+                    setProfileFilter([])
+                  }
+                }}
                 className={clsx(
                   'px-2.5 py-1 rounded-md text-xs font-medium transition-colors',
                   activeProfileId === profile.id

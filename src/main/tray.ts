@@ -6,7 +6,8 @@ import {
   openInTerminal,
   restartProcess
 } from './services/process-manager'
-import { getLastPorts, onPortsChanged } from './ipc'
+import { getLastPorts, onPortsChanged, notifyProfilesChanged } from './ipc'
+import { loadProfilesState, addPortToProfileFile } from './profiles-persistence'
 import type { PortInfo } from '../shared/types'
 
 let tray: Tray | null = null
@@ -14,6 +15,23 @@ let removeListener: (() => void) | null = null
 
 function getIconPath(): string {
   return join(__dirname, '../../resources/iconTemplate.png')
+}
+
+function addToProfileMenuItem(port: PortInfo): Electron.MenuItemConstructorOptions {
+  const { profiles } = loadProfilesState()
+  if (profiles.length === 0) {
+    return { label: 'Add to profile', enabled: false }
+  }
+  return {
+    label: 'Add to profile',
+    submenu: profiles.map((pr) => ({
+      label: `${pr.icon} ${pr.name}`,
+      click: () => {
+        addPortToProfileFile(pr.id, port.port)
+        notifyProfilesChanged()
+      }
+    }))
+  }
 }
 
 function portActionsSubmenu(
@@ -42,7 +60,8 @@ function portActionsSubmenu(
       click: async () => {
         await killProcess(port.pid)
       }
-    }
+    },
+    addToProfileMenuItem(port)
   ]
   if (opts.includeStats) {
     items.push(

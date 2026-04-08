@@ -1,5 +1,6 @@
 import { ipcMain, BrowserWindow } from 'electron'
 import log from './logger'
+import { loadProfilesState, saveProfilesState } from './profiles-persistence'
 import { scanPorts } from './services/port-scanner'
 import {
   getProcessDetails,
@@ -11,7 +12,17 @@ import {
   restartProcess,
   getProcessLogs
 } from './services/process-manager'
-import type { PortInfo } from '../shared/types'
+import type { PortInfo, ProfilesPersistState, Profile } from '../shared/types'
+
+export function notifyProfilesChanged(): void {
+  for (const w of BrowserWindow.getAllWindows()) {
+    try {
+      if (!w.isDestroyed()) w.webContents.send('profiles-changed')
+    } catch {
+      /* ignore */
+    }
+  }
+}
 
 let pollingTimeout: ReturnType<typeof setTimeout> | null = null
 let lastPorts: PortInfo[] = []
@@ -114,6 +125,31 @@ export function registerIpcHandlers(): void {
     if (typeof shortcut !== 'string' || shortcut.length === 0) return false
     return updateGlobalShortcut(shortcut)
   })
+
+  ipcMain.handle('load-profiles', async () => loadProfilesState())
+
+  ipcMain.handle('save-profiles', async (_event, state: unknown) => {
+    if (!state || typeof state !== 'object') return false
+    const s = state as Partial<ProfilesPersistState>
+    if (!Array.isArray(s.profiles)) return false
+    const profiles = s.profiles.filter((p): p is Profile => {
+      return (
+        p != null &&
+        typeof p === 'object' &&
+        typeof (p as Profile).id === 'string' &&
+        typeof (p as Profile).name === 'string' &&
+        Array.isArray((p as Profile).favoritePorts)
+      )
+    })
+    saveProfilesState({
+      profiles,
+      activeProfileId:
+        typeof s.activeProfileId === 'string' ? s.activeProfileId : null
+    })
+    notifyProfilesChanged()
+    return true
+  })
+
 }
 
 let currentIntervalMs = 3000

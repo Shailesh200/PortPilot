@@ -188,9 +188,9 @@ export function useKeyboardShortcuts() {
             restartPort(selectedPort.pid, selectedPort.projectPath).then((result) => {
               addToast({
                 type: result.success ? 'success' : 'error',
-                title: result.success ? 'Restarting in Terminal' : 'Restart Failed',
+                title: result.success ? 'Process restarted' : 'Restart Failed',
                 message: result.success
-                  ? `Port ${selectedPort.port} — command re-launched`
+                  ? result.hint || `Port ${selectedPort.port} — command re-launched`
                   : result.error || 'Unknown error'
               })
             })

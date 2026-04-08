@@ -1,6 +1,6 @@
-import { useState, useRef, useEffect } from 'react'
+import { useState, useRef, useEffect, useMemo } from 'react'
 import { usePortStore } from '../stores/portStore'
-import { Clock, Filter, Terminal, RefreshCw } from 'lucide-react'
+import { Clock, Filter, Terminal, RefreshCw, AlertTriangle } from 'lucide-react'
 import { clsx } from 'clsx'
 
 type Tab = 'activity' | 'process'
@@ -12,8 +12,12 @@ interface LogEntry {
   message: string
 }
 
+const HIGHLIGHT_RE =
+  /error|fatal|exception|warn|warning|failed|failure|panic|EADDR|ENOENT|Cannot find|undefined is not|Unhandled|Traceback|npm ERR|ELIFECYCLE|FATAL|✖|⨯/i
+
 export function LogViewer() {
   const history = usePortStore((s) => s.history)
+  const ports = usePortStore((s) => s.ports)
   const filteredPorts = usePortStore((s) => s.filteredPorts)
   const [filter, setFilter] = useState<string>('all')
   const [tab, setTab] = useState<Tab>('activity')
@@ -21,6 +25,8 @@ export function LogViewer() {
   const [processLogs, setProcessLogs] = useState<string[]>([])
   const [logsLoading, setLogsLoading] = useState(false)
   const scrollRef = useRef<HTMLDivElement>(null)
+
+  const portPickerList = ports.length > 0 ? ports : filteredPorts
 
   const fetchLogs = async (pid: number) => {
     setLogsLoading(true)
@@ -36,16 +42,27 @@ export function LogViewer() {
 
   useEffect(() => {
     if (tab === 'process' && selectedPid) {
-      fetchLogs(selectedPid)
-      const interval = setInterval(() => fetchLogs(selectedPid), 5000)
+      void fetchLogs(selectedPid)
+      const interval = setInterval(() => void fetchLogs(selectedPid), 5000)
       return () => clearInterval(interval)
     }
   }, [tab, selectedPid])
 
+  const highlights = useMemo(() => {
+    return processLogs.filter(
+      (l) => !l.startsWith('---') && HIGHLIGHT_RE.test(l)
+    )
+  }, [processLogs])
+
   const logs: LogEntry[] = history.map((h) => ({
     id: h.id,
     timestamp: h.timestamp,
-    type: h.action === 'kill' ? 'warn' : 'info',
+    type:
+      h.action === 'kill'
+        ? 'warn'
+        : h.action === 'restart'
+          ? 'info'
+          : 'info',
     message: `${h.action.toUpperCase()} — ${h.command || 'Unknown'} on port ${h.port || '?'} (PID ${h.pid || '?'})`
   }))
 
@@ -73,7 +90,8 @@ export function LogViewer() {
         <div>
           <h2 className="text-lg font-bold text-text-primary">Activity Logs</h2>
           <p className="text-xs text-text-muted mt-1">
-            Recent actions, port activity, and process logs
+            Recent actions, port activity, file-based process logs, and error
+            highlights
           </p>
         </div>
         <div className="flex items-center gap-3">
@@ -82,7 +100,9 @@ export function LogViewer() {
               onClick={() => setTab('activity')}
               className={clsx(
                 'px-3 py-1 rounded-md text-xs font-medium transition-colors',
-                tab === 'activity' ? 'bg-accent/10 text-accent' : 'text-text-muted hover:text-text-secondary'
+                tab === 'activity'
+                  ? 'bg-accent/10 text-accent'
+                  : 'text-text-muted hover:text-text-secondary'
               )}
             >
               Activity
@@ -91,7 +111,9 @@ export function LogViewer() {
               onClick={() => setTab('process')}
               className={clsx(
                 'px-3 py-1 rounded-md text-xs font-medium transition-colors',
-                tab === 'process' ? 'bg-accent/10 text-accent' : 'text-text-muted hover:text-text-secondary'
+                tab === 'process'
+                  ? 'bg-accent/10 text-accent'
+                  : 'text-text-muted hover:text-text-secondary'
               )}
             >
               Process Logs
@@ -121,9 +143,10 @@ export function LogViewer() {
 
       {tab === 'process' && (
         <div className="flex items-center gap-2 mb-3 flex-wrap">
-          {filteredPorts.map((p) => (
+          {portPickerList.map((p) => (
             <button
               key={`${p.pid}-${p.port}`}
+              type="button"
               onClick={() => setSelectedPid(p.pid)}
               className={clsx(
                 'px-2.5 py-1 rounded-md text-xs font-mono transition-colors border',
@@ -137,7 +160,8 @@ export function LogViewer() {
           ))}
           {selectedPid && (
             <button
-              onClick={() => fetchLogs(selectedPid)}
+              type="button"
+              onClick={() => void fetchLogs(selectedPid)}
               className={clsx(
                 'p-1.5 rounded-md text-text-muted hover:text-text-primary hover:bg-bg-hover transition-colors',
                 logsLoading && 'animate-spin'
@@ -198,7 +222,11 @@ export function LogViewer() {
         ) : !selectedPid ? (
           <div className="flex flex-col items-center justify-center h-full text-text-muted text-sm">
             <Terminal className="w-8 h-8 mb-2" />
-            <p>Select a process above to view its logs</p>
+            <p>Select a process to view file & project log output</p>
+            <p className="text-[11px] mt-2 max-w-md text-center">
+              Terminal-only output cannot be read from another app. We scan open
+              files and common *.log paths under the project directory.
+            </p>
           </div>
         ) : logsLoading && processLogs.length === 0 ? (
           <div className="flex flex-col items-center justify-center h-full text-text-muted text-sm">
@@ -206,18 +234,39 @@ export function LogViewer() {
             <p>Loading logs...</p>
           </div>
         ) : (
-          <div className="p-4 font-mono text-xs leading-relaxed">
-            {processLogs.map((line, i) => (
-              <div
-                key={i}
-                className={clsx(
-                  'py-0.5',
-                  line.startsWith('---') ? 'text-accent font-semibold mt-2 first:mt-0' : 'text-text-secondary'
-                )}
-              >
-                {line}
+          <div className="p-4">
+            {highlights.length > 0 && (
+              <div className="mb-4 rounded-lg border border-warning/30 bg-warning/5 p-3">
+                <div className="flex items-center gap-2 text-warning text-xs font-semibold mb-2">
+                  <AlertTriangle className="w-3.5 h-3.5" />
+                  Highlights ({highlights.length} lines)
+                </div>
+                <div className="max-h-32 overflow-auto font-mono text-[11px] text-text-secondary space-y-1">
+                  {highlights.slice(0, 25).map((line, i) => (
+                    <div key={i} className="text-danger/90">
+                      {line}
+                    </div>
+                  ))}
+                </div>
               </div>
-            ))}
+            )}
+            <div className="font-mono text-xs leading-relaxed">
+              {processLogs.map((line, i) => (
+                <div
+                  key={i}
+                  className={clsx(
+                    'py-0.5',
+                    line.startsWith('---')
+                      ? 'text-accent font-semibold mt-2 first:mt-0'
+                      : HIGHLIGHT_RE.test(line)
+                        ? 'text-danger/90 bg-danger/5'
+                        : 'text-text-secondary'
+                  )}
+                >
+                  {line}
+                </div>
+              ))}
+            </div>
           </div>
         )}
       </div>

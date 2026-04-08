@@ -25,8 +25,41 @@ export default function App() {
   const globalShortcut = useSettingsStore((s) => s.globalShortcut)
   const confirmDialog = useUIStore((s) => s.confirmDialog)
   const hideConfirm = useUIStore((s) => s.hideConfirm)
+  const reapplyFiltersAndSort = usePortStore((s) => s.reapplyFiltersAndSort)
 
   useKeyboardShortcuts()
+
+  useEffect(() => {
+    void window.api.loadProfiles().then((data) => {
+      if (!data?.profiles?.length) return
+      useSettingsStore.getState().applyLoadedProfiles(
+        data.profiles,
+        data.activeProfileId
+      )
+      const { activeProfileId, profiles } = useSettingsStore.getState()
+      const pr =
+        activeProfileId && profiles.find((p) => p.id === activeProfileId)
+      if (pr) {
+        usePortStore.getState().setProfileFilter(pr.favoritePorts)
+      } else {
+        usePortStore.getState().setProfileFilter([])
+      }
+      reapplyFiltersAndSort()
+    })
+  }, [reapplyFiltersAndSort])
+
+  useEffect(() => {
+    return window.api.onProfilesChanged(() => {
+      void window.api.loadProfiles().then((data) => {
+        if (!data?.profiles?.length) return
+        useSettingsStore.getState().applyLoadedProfiles(
+          data.profiles,
+          data.activeProfileId
+        )
+        reapplyFiltersAndSort()
+      })
+    })
+  }, [reapplyFiltersAndSort])
 
   useEffect(() => {
     document.documentElement.setAttribute(

@@ -1,5 +1,8 @@
 import { exec, spawn, execFile } from 'child_process'
 import { promisify } from 'util'
+import { writeFileSync, unlinkSync } from 'fs'
+import { tmpdir } from 'os'
+import { join } from 'path'
 import { shell } from 'electron'
 import type { ProcessDetails } from '../../shared/types'
 
@@ -56,62 +59,109 @@ export async function getProcessDetails(pid: number): Promise<ProcessDetails | n
   }
 }
 
+function isNoisePath(p: string): boolean {
+  const n = p.toLowerCase()
+  return (
+    n.includes('/node_modules/') ||
+    n.includes('/.git/') ||
+    n.includes('/library/') ||
+    n.includes('/frameworks/') ||
+    n.includes('.app/contents/') ||
+    n.includes('/proc/') ||
+    n.includes('/dev/') ||
+    n.endsWith('.node') ||
+    n.endsWith('.dylib') ||
+    n.endsWith('.so') ||
+    n.endsWith('.wasm') ||
+    n.endsWith('.pack') ||
+    n.endsWith('.pack.gz')
+  )
+}
+
+function scoreLogPath(p: string): number {
+  const n = p.toLowerCase()
+  let s = 0
+  if (n.includes('.log')) s += 10
+  if (n.includes('vite')) s += 5
+  if (n.includes('next')) s += 5
+  if (n.includes('npm')) s += 3
+  if (n.includes('debug')) s += 3
+  if (n.includes('.txt') || n.includes('.out') || n.includes('.err')) s += 4
+  if (n.includes('trace')) s += 2
+  return s
+}
+
 export async function getProcessLogs(pid: number): Promise<string[]> {
   const lines: string[] = []
+  const logFiles = new Set<string>()
+
+  const cwd = await resolveProcessCwd(pid)
 
   try {
-    // Find open log/output files for this process
-    const { stdout } = await execAsync(
-      `lsof -p ${pid} 2>/dev/null | grep -E 'REG.*\\.(log|txt|out|err)' || true`
-    )
-
-    const logFiles = new Set<string>()
-    for (const line of stdout.trim().split('\n')) {
-      if (!line) continue
-      const parts = line.split(/\s+/)
-      // The last column in lsof output is the file path
-      const filePath = parts.slice(8).join(' ')
-      if (filePath && filePath.startsWith('/') && !filePath.includes('/dev/')) {
+    const { stdout: fnOut } = await execAsync(`lsof -p ${pid} -Fn 2>/dev/null || true`)
+    for (const line of fnOut.split('\n')) {
+      if (line.startsWith('n/')) {
+        const filePath = line.slice(1).split('\0')[0]
+        if (!filePath.startsWith('/')) continue
+        if (isNoisePath(filePath)) continue
+        if (filePath.length > 4096) continue
         logFiles.add(filePath)
       }
     }
+  } catch {
+    /* ignore */
+  }
 
-    // Read last 100 lines from each discovered log file
-    for (const logFile of Array.from(logFiles).slice(0, 3)) {
-      try {
-        const { stdout: tail } = await execAsync(
-          `tail -50 "${logFile.replace(/"/g, '\\"')}" 2>/dev/null`
-        )
-        if (tail.trim()) {
-          lines.push(`--- ${logFile} ---`)
-          lines.push(...tail.trim().split('\n'))
-        }
-      } catch {
-        // skip unreadable files
-      }
-    }
-
-    // Also try to get recent syslog entries for this process
-    if (lines.length === 0) {
-      try {
-        const { stdout: syslog } = await execAsync(
-          `log show --predicate 'processID == ${pid}' --last 1m --style syslog 2>/dev/null | tail -30`
-        )
-        if (syslog.trim()) {
-          lines.push('--- System Log ---')
-          lines.push(...syslog.trim().split('\n'))
-        }
-      } catch {
-        // system log may not be available
-      }
+  try {
+    const qc = cwd.replace(/'/g, "'\\''")
+    const { stdout: findOut } = await execAsync(
+      `find '${qc}' -maxdepth 5 \\( -name "*.log" -o -name "npm-debug.log*" -o -name "yarn-debug.log*" -o -name "vite.config.*.timestamp-*" \\) -type f -mmin -720 2>/dev/null | head -25`
+    )
+    for (const p of findOut.trim().split('\n')) {
+      if (p && p.startsWith('/') && !isNoisePath(p)) logFiles.add(p)
     }
   } catch {
-    // best effort
+    /* ignore */
+  }
+
+  const ranked = [...logFiles].sort(
+    (a, b) => scoreLogPath(b) - scoreLogPath(a) || b.length - a.length
+  )
+
+  for (const logFile of ranked.slice(0, 6)) {
+    try {
+      const { stdout: tail } = await execAsync(
+        `tail -n 80 "${logFile.replace(/"/g, '\\"')}" 2>/dev/null`
+      )
+      if (tail.trim()) {
+        lines.push(`--- ${logFile} ---`)
+        lines.push(...tail.trim().split('\n'))
+      }
+    } catch {
+      /* skip */
+    }
   }
 
   if (lines.length === 0) {
-    lines.push('No log output available for this process.')
-    lines.push('Logs are captured from files the process has open (.log, .txt, .out, .err)')
+    try {
+      const { stdout: syslog } = await execAsync(
+        `log show --predicate 'processID == ${pid}' --last 5m --style syslog 2>/dev/null | tail -40`
+      )
+      if (syslog.trim()) {
+        lines.push('--- System Log (last 5m) ---')
+        lines.push(...syslog.trim().split('\n'))
+      }
+    } catch {
+      /* ignore */
+    }
+  }
+
+  if (lines.length === 0) {
+    lines.push('No log files found for this process.')
+    lines.push(
+      'Dev servers usually log to the terminal only. PortPilot reads open files under the project and common *.log paths.'
+    )
+    lines.push(`Project cwd: ${cwd}`)
   }
 
   return lines
@@ -175,8 +225,10 @@ const TERMINAL_SIGNATURES: [string, TerminalApp][] = [
   ['Cursor.app', 'cursor'],
   ['Code.app', 'vscode'],
   ['Visual Studio Code', 'vscode'],
-  ['Warp.app', 'warp'],
-  ['/Warp.app/', 'warp']
+  ['/warp.app/', 'warp'],
+  ['warp.app', 'warp'],
+  ['macos/stable', 'warp'],
+  ['contents/macos/stable', 'warp']
 ]
 
 function addProcessTty(ttys: Set<string>, raw: string): void {
@@ -220,8 +272,9 @@ async function identifyTerminal(pid: number): Promise<AncestorInfo> {
       }
 
       if (app === 'unknown') {
+        const cmdLower = cmd.toLowerCase()
         for (const [sig, name] of TERMINAL_SIGNATURES) {
-          if (cmd.includes(sig)) {
+          if (cmdLower.includes(sig.toLowerCase())) {
             app = name
             break
           }
@@ -232,6 +285,19 @@ async function identifyTerminal(pid: number): Promise<AncestorInfo> {
     }
   } catch {
     // best-effort
+  }
+
+  if (app === 'unknown') {
+    try {
+      const { stdout: psEnv } = await execAsync(
+        `ps eww -p ${pid} 2>/dev/null || true`
+      )
+      if (/TERM_PROGRAM=warp/i.test(psEnv)) {
+        app = 'warp'
+      }
+    } catch {
+      /* ignore */
+    }
   }
 
   return { app, ttys: [...ttys] }
@@ -314,6 +380,153 @@ async function focusApp(bundleName: string): Promise<boolean> {
   }
 }
 
+/**
+ * Open Warp at a working directory. Warp's GUI binary is often `stable` under
+ * Warp.app — detection uses that path. macOS `open` with warp:// is more
+ * reliable than shell.openExternal from Electron for custom URL schemes.
+ */
+async function openWarpTabAtDirectory(dir: string): Promise<boolean> {
+  const q = encodeURIComponent(dir)
+  const uris = [
+    `warp://action/new_tab?path=${q}`,
+    `warppreview://action/new_tab?path=${q}`,
+    `warp://action/new_window?path=${q}`,
+    `warppreview://action/new_window?path=${q}`
+  ]
+
+  for (const uri of uris) {
+    try {
+      await execFileAsync('open', [uri])
+      return true
+    } catch {
+      /* try next */
+    }
+  }
+
+  try {
+    await shell.openExternal(uris[0])
+    return true
+  } catch {
+    /* fall through */
+  }
+
+  try {
+    await execFileAsync('open', ['-a', 'Warp', dir])
+    return true
+  } catch {
+    /* try Warp Preview app name */
+  }
+
+  try {
+    await execFileAsync('open', ['-a', 'Warp Preview', dir])
+    return true
+  } catch {
+    return false
+  }
+}
+
+function writeRestartShellScript(cwd: string, fullCommand: string): string {
+  const sp = join(
+    tmpdir(),
+    `pp-r-${Date.now()}-${Math.random().toString(16).slice(2)}.sh`
+  )
+  const body = `#!/bin/bash
+set +e
+cd ${JSON.stringify(cwd)}
+${fullCommand}
+`
+  writeFileSync(sp, body, { mode: 0o700 })
+  return sp
+}
+
+function scheduleDeleteScript(sp: string): void {
+  setTimeout(() => {
+    try {
+      unlinkSync(sp)
+    } catch {
+      /* ignore */
+    }
+  }, 20000)
+}
+
+async function runCommandInTerminalTab(
+  ttys: string[],
+  cwd: string,
+  fullCommand: string
+): Promise<boolean> {
+  if (ttys.length === 0) return false
+  const sp = writeRestartShellScript(cwd, fullCommand)
+  const conditions = ttys.map((t) => `tty of t is "${t}"`).join(' or ')
+  const esc = sp.replace(/\\/g, '\\\\').replace(/"/g, '\\"')
+  try {
+    const result = await runAppleScript(
+      'tell application "Terminal"',
+      '  repeat with w in windows',
+      '    repeat with t in tabs of w',
+      `      if ${conditions} then`,
+      '        if miniaturized of w then set miniaturized of w to false',
+      `        do script "exec /bin/bash \\"${esc}\\"" in t`,
+      '        activate',
+      '        return "ok"',
+      '      end if',
+      '    end repeat',
+      '  end repeat',
+      '  return "no"',
+      'end tell'
+    )
+    scheduleDeleteScript(sp)
+    return result === 'ok'
+  } catch {
+    try {
+      unlinkSync(sp)
+    } catch {
+      /* ignore */
+    }
+    return false
+  }
+}
+
+async function runCommandInITermTab(
+  ttys: string[],
+  cwd: string,
+  fullCommand: string
+): Promise<boolean> {
+  if (ttys.length === 0) return false
+  const sp = writeRestartShellScript(cwd, fullCommand)
+  const conditions = ttys.map((t) => `tty of s is "${t}"`).join(' or ')
+  const esc = sp.replace(/\\/g, '\\\\').replace(/"/g, '\\"')
+  try {
+    const result = await runAppleScript(
+      'tell application "iTerm2"',
+      '  repeat with w in windows',
+      '    repeat with t in tabs of w',
+      '      repeat with s in sessions of t',
+      `        if ${conditions} then`,
+      '          if miniaturized of w then set miniaturized of w to false',
+      '          select t',
+      '          select s',
+          `          tell s to write text ("exec /bin/bash \\"${esc}\\"" & return)`,
+      '          activate',
+      '          return "ok"',
+      '        end if',
+      '      end repeat',
+      '    end repeat',
+      '  end repeat',
+      '  return "no"',
+      'end tell'
+    )
+    scheduleDeleteScript(sp)
+    return result === 'ok'
+  } catch {
+    try {
+      unlinkSync(sp)
+    } catch {
+      /* ignore */
+    }
+    return false
+  }
+}
+
 export async function openInTerminal(pid: number, projectPath?: string): Promise<void> {
   const { app, ttys } = await identifyTerminal(pid)
   const dir = projectPath || (await resolveProcessCwd(pid))
@@ -348,15 +561,12 @@ export async function openInTerminal(pid: number, projectPath?: string): Promise
       if (await focusApp('Visual Studio Code')) return
       break
     case 'warp': {
-      await focusApp('Warp')
-      try {
-        await shell.openExternal(
-          `warp://action/new_tab?path=${encodeURIComponent(dir)}`
-        )
+      const opened = await openWarpTabAtDirectory(dir)
+      if (opened) {
+        void focusApp('Warp').catch(() => focusApp('Warp Preview'))
         return
-      } catch {
-        break
       }
+      break
     }
   }
 
@@ -402,20 +612,59 @@ async function getFullCommand(pid: number): Promise<string | null> {
 export async function restartProcess(
   pid: number,
   projectPath?: string
-): Promise<{ success: boolean; error?: string }> {
+): Promise<{ success: boolean; error?: string; hint?: string }> {
+  const { app: termApp, ttys } = await identifyTerminal(pid)
   const fullCommand = await getFullCommand(pid)
   if (!fullCommand) {
     return { success: false, error: 'Could not determine process command' }
   }
 
-  const cwd = projectPath || await resolveProcessCwd(pid)
+  const cwd = projectPath || (await resolveProcessCwd(pid))
 
   const killed = await killProcess(pid)
   if (!killed) {
     return { success: false, error: 'Failed to kill the process' }
   }
 
-  await new Promise((r) => setTimeout(r, 500))
+  await new Promise((r) => setTimeout(r, 450))
+
+  switch (termApp) {
+    case 'terminal':
+      if (await runCommandInTerminalTab(ttys, cwd, fullCommand)) {
+        return { success: true }
+      }
+      break
+    case 'iterm':
+      if (await runCommandInITermTab(ttys, cwd, fullCommand)) {
+        return { success: true }
+      }
+      break
+    case 'warp': {
+      const ok = await openWarpTabAtDirectory(cwd)
+      if (ok) {
+        void focusApp('Warp').catch(() => focusApp('Warp Preview'))
+        return {
+          success: true,
+          hint: 'Warp: new tab opened — press ↑ for history or run your dev command again.'
+        }
+      }
+      break
+    }
+    case 'cursor':
+      await focusApp('Cursor')
+      return {
+        success: true,
+        hint: 'Cursor focused — re-run the command in the integrated terminal (↑ for history).'
+      }
+    case 'vscode':
+      await focusApp('Visual Studio Code')
+      return {
+        success: true,
+        hint: 'VS Code focused — re-run the command in the integrated terminal (↑ for history).'
+      }
+    default:
+      break
+  }
 
   const escapedCwd = cwd.replace(/'/g, "'\\''")
   const escapedCmd = fullCommand.replace(/'/g, "'\\''")
@@ -426,5 +675,8 @@ export async function restartProcess(
     '-e', 'end tell'
   ]).catch(() => {})
 
-  return { success: true }
+  return {
+    success: true,
+    hint: 'Launched in Terminal.app (could not match the original terminal tab).'
+  }
 }

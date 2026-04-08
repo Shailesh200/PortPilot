@@ -11,7 +11,9 @@ import {
   Grid3x3,
   ScrollText,
   Hash,
-  Settings
+  Settings,
+  Cpu,
+  Skull
 } from 'lucide-react'
 import { clsx } from 'clsx'
 import Fuse from 'fuse.js'
@@ -21,7 +23,7 @@ interface CommandItem {
   label: string
   description?: string
   icon: typeof Search
-  category: 'port' | 'action' | 'navigation'
+  category: 'port' | 'action' | 'navigation' | 'natural'
   handler: () => void
   shortcut?: string
 }
@@ -33,6 +35,7 @@ export function CommandPalette() {
   const listRef = useRef<HTMLDivElement>(null)
 
   const filteredPorts = usePortStore((s) => s.filteredPorts)
+  const allPorts = usePortStore((s) => s.ports)
   const killPort = usePortStore((s) => s.killPort)
   const openInBrowser = usePortStore((s) => s.openInBrowser)
   const openInTerminal = usePortStore((s) => s.openInTerminal)
@@ -42,6 +45,60 @@ export function CommandPalette() {
   const addToast = useUIStore((s) => s.addToast)
 
   const commands = useMemo<CommandItem[]>(() => {
+    const nlpItems: CommandItem[] = []
+    const portNums = [
+      ...new Set(
+        [...query.matchAll(/\b(\d{2,5})\b/g)]
+          .map((m) => parseInt(m[1], 10))
+          .filter((n) => n >= 8 && n <= 65535)
+      )
+    ]
+    const ql = query.toLowerCase()
+    const killIntent = /kill|stop|terminate|end/.test(ql)
+    const statsIntent = /cpu|usage|mem|memory|load|stats|info|show/.test(ql)
+
+    for (const num of portNums) {
+      const p = allPorts.find((ap) => ap.port === num)
+      if (!p) continue
+      const showKill = killIntent || (!killIntent && !statsIntent)
+      const showStats = statsIntent || (!killIntent && !statsIntent)
+      if (showKill) {
+        nlpItems.push({
+          id: `nlp-kill-${num}`,
+          label: `Kill port ${num}`,
+          description: `${p.command} (PID ${p.pid})`,
+          icon: Skull,
+          category: 'natural',
+          handler: async () => {
+            const success = await killPort(p.pid)
+            addToast({
+              type: success ? 'success' : 'error',
+              title: success ? 'Killed' : 'Failed',
+              message: `Port ${num}`
+            })
+            closeCommandPalette()
+          }
+        })
+      }
+      if (showStats) {
+        nlpItems.push({
+          id: `nlp-cpu-${num}`,
+          label: `CPU & memory — port ${num}`,
+          description: `${p.cpu.toFixed(1)}% CPU · ${p.memory.toFixed(1)}% MEM · ${p.command}`,
+          icon: Cpu,
+          category: 'natural',
+          handler: () => {
+            addToast({
+              type: 'info',
+              title: `Port ${num}`,
+              message: `CPU ${p.cpu.toFixed(1)}%, memory ${p.memory.toFixed(1)}%, PID ${p.pid}`
+            })
+            closeCommandPalette()
+          }
+        })
+      }
+    }
+
     const items: CommandItem[] = [
       {
         id: 'nav-dashboard',
@@ -151,8 +208,10 @@ export function CommandPalette() {
       )
     }
 
-    return items
+    return [...nlpItems, ...items]
   }, [
+    query,
+    allPorts,
     filteredPorts,
     killPort,
     openInBrowser,
@@ -227,6 +286,7 @@ export function CommandPalette() {
   }, [filtered])
 
   const categoryLabels: Record<string, string> = {
+    natural: 'Quick actions',
     navigation: 'Navigation',
     port: 'Ports',
     action: 'Actions'

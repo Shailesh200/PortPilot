@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer } from 'electron'
-import type { IpcApi, PortInfo } from '../shared/types'
+import type { IpcApi, PortInfo, ProfilesPersistState } from '../shared/types'
 
 const api: IpcApi = {
   getPorts: () => ipcRenderer.invoke('get-ports'),
@@ -10,9 +10,13 @@ const api: IpcApi = {
   openInBrowser: (port: number) => ipcRenderer.invoke('open-in-browser', port),
   openInTerminal: (pid: number, projectPath?: string) => ipcRenderer.invoke('open-in-terminal', pid, projectPath),
   openInVSCode: (pid: number, projectPath?: string) => ipcRenderer.invoke('open-in-vscode', pid, projectPath),
-  restartProcess: (pid: number, projectPath?: string) => ipcRenderer.invoke('restart-process', pid, projectPath),
+  restartProcess: (pid: number, projectPath?: string) =>
+    ipcRenderer.invoke('restart-process', pid, projectPath),
   updatePollInterval: (intervalMs: number) => ipcRenderer.invoke('update-poll-interval', intervalMs),
   updateGlobalShortcut: (shortcut: string) => ipcRenderer.invoke('update-global-shortcut', shortcut),
+  loadProfiles: () => ipcRenderer.invoke('load-profiles'),
+  saveProfiles: (state: ProfilesPersistState) =>
+    ipcRenderer.invoke('save-profiles', state),
   onPortsUpdate: (callback: (ports: PortInfo[]) => void) => {
     const handler = (_event: Electron.IpcRendererEvent, ports: PortInfo[]) => callback(ports)
     ipcRenderer.on('ports-updated', handler)
@@ -25,6 +29,13 @@ const api: IpcApi = {
     ipcRenderer.on('focus-search', handler)
     return () => {
       ipcRenderer.removeListener('focus-search', handler)
+    }
+  },
+  onProfilesChanged: (callback: () => void) => {
+    const handler = () => callback()
+    ipcRenderer.on('profiles-changed', handler)
+    return () => {
+      ipcRenderer.removeListener('profiles-changed', handler)
     }
   }
 }

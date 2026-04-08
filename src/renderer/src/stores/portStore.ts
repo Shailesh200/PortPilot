@@ -1,6 +1,7 @@
 import { create } from 'zustand'
 import Fuse from 'fuse.js'
 import type { PortInfo, ProcessDetails, ActionHistoryItem } from '../../../shared/types'
+import { useSettingsStore } from './settingsStore'
 
 interface PortState {
   ports: PortInfo[]
@@ -30,7 +31,10 @@ interface PortState {
   fetchProcessDetails: (pid: number) => Promise<void>
   killSelected: () => Promise<void>
   killPort: (pid: number) => Promise<boolean>
-  restartPort: (pid: number, projectPath?: string) => Promise<{ success: boolean; error?: string }>
+  restartPort: (
+    pid: number,
+    projectPath?: string
+  ) => Promise<{ success: boolean; error?: string; hint?: string }>
   openInBrowser: (port: number) => Promise<void>
   openInTerminal: (pid: number, projectPath?: string) => Promise<void>
   openInVSCode: (pid: number, projectPath?: string) => Promise<void>
@@ -39,6 +43,7 @@ interface PortState {
   removeTag: (port: number, tag: string) => void
   addHistory: (item: Omit<ActionHistoryItem, 'id' | 'timestamp'>) => void
   clearHistory: () => void
+  reapplyFiltersAndSort: () => void
 }
 
 function filterPorts(
@@ -76,12 +81,22 @@ function applyProfileFilter(
   return ports.filter((p) => profileFilter.includes(p.port))
 }
 
-function sortPorts(
+function sortPortsWithImportance(
   ports: PortInfo[],
+  favoritePorts: number[],
   sortBy: keyof PortInfo,
   direction: 'asc' | 'desc'
 ): PortInfo[] {
+  const fav = new Set(favoritePorts)
+  const tier = (p: PortInfo) => {
+    if (fav.has(p.port)) return 0
+    if (!p.isCritical) return 1
+    return 2
+  }
   return [...ports].sort((a, b) => {
+    const ta = tier(a)
+    const tb = tier(b)
+    if (ta !== tb) return ta - tb
     const aVal = a[sortBy]
     const bVal = b[sortBy]
     const cmp =
@@ -90,6 +105,25 @@ function sortPorts(
         : String(aVal).localeCompare(String(bVal))
     return direction === 'asc' ? cmp : -cmp
   })
+}
+
+function getFavoritePortsForSort(): number[] {
+  const { activeProfileId, profiles } = useSettingsStore.getState()
+  if (activeProfileId == null) return []
+  return profiles.find((p) => p.id === activeProfileId)?.favoritePorts ?? []
+}
+
+function applySorted(
+  filtered: PortInfo[],
+  sortBy: keyof PortInfo,
+  sortDirection: 'asc' | 'desc'
+): PortInfo[] {
+  return sortPortsWithImportance(
+    filtered,
+    getFavoritePortsForSort(),
+    sortBy,
+    sortDirection
+  )
 }
 
 export const usePortStore = create<PortState>((set, get) => ({
@@ -110,7 +144,10 @@ export const usePortStore = create<PortState>((set, get) => ({
     const { searchQuery, sortBy, sortDirection, tags, profileFilter } = get()
     let filtered = filterPorts(ports, searchQuery, tags)
     filtered = applyProfileFilter(filtered, profileFilter)
-    set({ ports, filteredPorts: sortPorts(filtered, sortBy, sortDirection) })
+    set({
+      ports,
+      filteredPorts: applySorted(filtered, sortBy, sortDirection)
+    })
   },
 
   setProfileFilter: (portNumbers) => {
@@ -120,7 +157,7 @@ export const usePortStore = create<PortState>((set, get) => ({
     if (portNumbers.length > 0) {
       filtered = filtered.filter((p) => portNumbers.includes(p.port))
     }
-    set({ filteredPorts: sortPorts(filtered, sortBy, sortDirection) })
+    set({ filteredPorts: applySorted(filtered, sortBy, sortDirection) })
   },
 
   setSearchQuery: (query) => {
@@ -129,7 +166,7 @@ export const usePortStore = create<PortState>((set, get) => ({
     filtered = applyProfileFilter(filtered, profileFilter)
     set({
       searchQuery: query,
-      filteredPorts: sortPorts(filtered, sortBy, sortDirection),
+      filteredPorts: applySorted(filtered, sortBy, sortDirection),
       selectedIndex: filtered.length > 0 ? 0 : -1
     })
   },
@@ -140,7 +177,7 @@ export const usePortStore = create<PortState>((set, get) => ({
     set({
       sortBy: key,
       sortDirection: newDirection,
-      filteredPorts: sortPorts(filteredPorts, key, newDirection)
+      filteredPorts: applySorted(filteredPorts, key, newDirection)
     })
   },
 
@@ -265,7 +302,7 @@ export const usePortStore = create<PortState>((set, get) => ({
     filtered = applyProfileFilter(filtered, profileFilter)
     set({
       tags: newTags,
-      filteredPorts: sortPorts(filtered, sortBy, sortDirection)
+      filteredPorts: applySorted(filtered, sortBy, sortDirection)
     })
   },
 
@@ -279,7 +316,7 @@ export const usePortStore = create<PortState>((set, get) => ({
     filtered = applyProfileFilter(filtered, profileFilter)
     set({
       tags: newTags,
-      filteredPorts: sortPorts(filtered, sortBy, sortDirection)
+      filteredPorts: applySorted(filtered, sortBy, sortDirection)
     })
   },
 
@@ -293,5 +330,13 @@ export const usePortStore = create<PortState>((set, get) => ({
     })
   },
 
-  clearHistory: () => set({ history: [] })
+  clearHistory: () => set({ history: [] }),
+
+  reapplyFiltersAndSort: () => {
+    const { ports, searchQuery, sortBy, sortDirection, tags, profileFilter } =
+      get()
+    let filtered = filterPorts(ports, searchQuery, tags)
+    filtered = applyProfileFilter(filtered, profileFilter)
+    set({ filteredPorts: applySorted(filtered, sortBy, sortDirection) })
+  }
 }))
