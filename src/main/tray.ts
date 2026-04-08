@@ -1,6 +1,11 @@
 import { Tray, Menu, nativeImage, BrowserWindow, app } from 'electron'
 import { join } from 'path'
-import { killProcess, openInBrowser } from './services/process-manager'
+import {
+  killProcess,
+  openInBrowser,
+  openInTerminal,
+  restartProcess
+} from './services/process-manager'
 import { getLastPorts, onPortsChanged } from './ipc'
 import type { PortInfo } from '../shared/types'
 
@@ -9,6 +14,50 @@ let removeListener: (() => void) | null = null
 
 function getIconPath(): string {
   return join(__dirname, '../../resources/iconTemplate.png')
+}
+
+function portActionsSubmenu(
+  port: PortInfo,
+  opts: { includeStats?: boolean } = {}
+): Electron.MenuItemConstructorOptions[] {
+  const items: Electron.MenuItemConstructorOptions[] = [
+    {
+      label: `Open in Browser`,
+      click: () => openInBrowser(port.port)
+    },
+    {
+      label: `Open in Terminal`,
+      click: () => {
+        void openInTerminal(port.pid, port.projectPath)
+      }
+    },
+    {
+      label: `Restart Port`,
+      click: async () => {
+        await restartProcess(port.pid, port.projectPath)
+      }
+    },
+    {
+      label: `Kill Process`,
+      click: async () => {
+        await killProcess(port.pid)
+      }
+    }
+  ]
+  if (opts.includeStats) {
+    items.push(
+      { type: 'separator' as const },
+      {
+        label: `PID: ${port.pid}`,
+        enabled: false
+      },
+      {
+        label: `CPU: ${port.cpu.toFixed(1)}%  MEM: ${port.memory.toFixed(1)}%`,
+        enabled: false
+      }
+    )
+  }
+  return items
 }
 
 function buildContextMenu(
@@ -20,27 +69,7 @@ function buildContextMenu(
     .map((port) => ({
       label: `:${port.port}  ${port.projectName || port.command}`,
       sublabel: `PID ${port.pid} — CPU ${port.cpu.toFixed(1)}%`,
-      submenu: [
-        {
-          label: `Open in Browser`,
-          click: () => openInBrowser(port.port)
-        },
-        {
-          label: `Kill Process`,
-          click: async () => {
-            await killProcess(port.pid)
-          }
-        },
-        { type: 'separator' as const },
-        {
-          label: `PID: ${port.pid}`,
-          enabled: false
-        },
-        {
-          label: `CPU: ${port.cpu.toFixed(1)}%  MEM: ${port.memory.toFixed(1)}%`,
-          enabled: false
-        }
-      ]
+      submenu: portActionsSubmenu(port, { includeStats: true })
     }))
 
   const hasHighCpu = ports.some((p) => p.cpu > 50)
@@ -102,7 +131,52 @@ function buildContextMenu(
   ])
 }
 
+function syncDockMenu(mainWindow: BrowserWindow | null, ports: PortInfo[]): void {
+  if (process.platform !== 'darwin') return
+  try {
+    const dock = app.dock
+    if (!dock || typeof dock.setMenu !== 'function') return
+
+    const portDockItems: Electron.MenuItemConstructorOptions[] = ports
+      .slice(0, 12)
+      .map((port) => ({
+        label: `:${port.port}  ${port.projectName || port.command}`,
+        submenu: portActionsSubmenu(port, { includeStats: false })
+      }))
+
+    dock.setMenu(
+      Menu.buildFromTemplate([
+        {
+          label: 'Show PortPilot',
+          click: () => {
+            if (mainWindow) {
+              mainWindow.show()
+              mainWindow.focus()
+            }
+          }
+        },
+        { type: 'separator' as const },
+        ...(ports.length === 0
+          ? [{ label: 'No active ports', enabled: false }]
+          : portDockItems),
+        ...(ports.length > 12
+          ? [
+              {
+                label: `…and ${ports.length - 12} more (use menu bar icon)`,
+                enabled: false
+              }
+            ]
+          : [])
+      ])
+    )
+  } catch {
+    // dock menu is best-effort
+  }
+}
+
 function updateTray(mainWindow: BrowserWindow | null, ports: PortInfo[]): void {
+  syncDockMenu(mainWindow, ports)
+
   if (!tray || tray.isDestroyed()) return
 
   try {

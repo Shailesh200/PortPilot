@@ -240,6 +240,7 @@ export function CommandPalette() {
       onClick={closeCommandPalette}
     >
       <div
+        data-skip-port-shortcuts
         className="w-full max-w-[560px] bg-bg-surface border border-border rounded-xl shadow-2xl overflow-hidden animate-slide-down"
         onClick={(e) => e.stopPropagation()}
       >

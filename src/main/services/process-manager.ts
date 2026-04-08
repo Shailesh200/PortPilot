@@ -175,12 +175,28 @@ const TERMINAL_SIGNATURES: [string, TerminalApp][] = [
   ['Cursor.app', 'cursor'],
   ['Code.app', 'vscode'],
   ['Visual Studio Code', 'vscode'],
-  ['Warp.app', 'warp']
+  ['Warp.app', 'warp'],
+  ['/Warp.app/', 'warp']
 ]
+
+function addProcessTty(ttys: Set<string>, raw: string): void {
+  const t = raw.trim()
+  if (!t || t === '??' || t === '?' || t === '') return
+  ttys.add(t.startsWith('/dev/') ? t : `/dev/${t}`)
+}
 
 async function identifyTerminal(pid: number): Promise<AncestorInfo> {
   const ttys = new Set<string>()
   let app: TerminalApp = 'unknown'
+
+  try {
+    const { stdout: leafTty } = await execAsync(
+      `ps -p ${pid} -o tty= 2>/dev/null`
+    )
+    addProcessTty(ttys, leafTty)
+  } catch {
+    // ignore
+  }
 
   try {
     let current = pid
@@ -200,7 +216,7 @@ async function identifyTerminal(pid: number): Promise<AncestorInfo> {
       const cmd = parts.slice(1).join(' ')
 
       if (tty && tty !== '??' && tty !== '') {
-        ttys.add(`/dev/${tty}`)
+        addProcessTty(ttys, tty)
       }
 
       if (app === 'unknown') {
@@ -300,6 +316,8 @@ async function focusApp(bundleName: string): Promise<boolean> {
 
 export async function openInTerminal(pid: number, projectPath?: string): Promise<void> {
   const { app, ttys } = await identifyTerminal(pid)
+  const dir = projectPath || (await resolveProcessCwd(pid))
+  const escapedDir = dir.replace(/'/g, "'\\''")
 
   switch (app) {
     case 'terminal':
@@ -307,20 +325,41 @@ export async function openInTerminal(pid: number, projectPath?: string): Promise
       break
     case 'iterm':
       if (await focusITermTab(ttys)) return
-      break
+      try {
+        await runAppleScript(
+          'tell application "iTerm2"',
+          '  tell current window',
+          '    create tab with default profile',
+          `    tell current session of current tab to write text "cd '${escapedDir}'"`,
+          '  end tell',
+          '  activate',
+          'end tell'
+        )
+      } catch {
+        await execFileAsync('open', ['-a', 'iTerm2', dir]).catch(() =>
+          execFileAsync('open', ['-a', 'iTerm', dir]).catch(() => {})
+        )
+      }
+      return
     case 'cursor':
       if (await focusApp('Cursor')) return
       break
     case 'vscode':
       if (await focusApp('Visual Studio Code')) return
       break
-    case 'warp':
-      if (await focusApp('Warp')) return
-      break
+    case 'warp': {
+      await focusApp('Warp')
+      try {
+        await shell.openExternal(
+          `warp://action/new_tab?path=${encodeURIComponent(dir)}`
+        )
+        return
+      } catch {
+        break
+      }
+    }
   }
 
-  const dir = projectPath || await resolveProcessCwd(pid)
-  const escapedDir = dir.replace(/'/g, "'\\''")
   execFileAsync('/usr/bin/osascript', [
     '-e', 'tell application "Terminal"',
     '-e', '  activate',

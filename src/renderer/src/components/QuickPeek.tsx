@@ -44,6 +44,9 @@ export function QuickPeek() {
       onClick={closeQuickPeek}
     >
       <div
+        data-skip-port-shortcuts
+        role="dialog"
+        aria-modal="true"
         className="w-full max-w-[480px] bg-bg-surface border border-border rounded-xl shadow-2xl overflow-hidden animate-slide-up"
         onClick={(e) => e.stopPropagation()}
       >

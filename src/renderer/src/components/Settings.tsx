@@ -309,7 +309,12 @@ const defaultShortcuts = [
   { id: 'open-browser', label: 'Open in Browser', keys: 'O', category: 'Actions' },
   { id: 'open-terminal', label: 'Open Terminal', keys: 'T', category: 'Actions' },
   { id: 'open-vscode', label: 'Open in VS Code', keys: 'V', category: 'Actions' },
-  { id: 'quick-peek', label: 'Quick Peek', keys: 'Space', category: 'Actions' },
+  {
+    id: 'quick-peek',
+    label: 'Quick Peek',
+    keys: 'Space (global) · ↵ on focused row',
+    category: 'Actions'
+  },
   { id: 'navigate-up', label: 'Move Up', keys: '↑', category: 'Table' },
   { id: 'navigate-down', label: 'Move Down', keys: '↓', category: 'Table' },
   { id: 'expand-row', label: 'Expand Row', keys: '→', category: 'Table' },
@@ -812,7 +817,7 @@ export function Settings() {
   const ActivePanel = tabComponents[activeTab]
 
   return (
-    <div className="h-full flex overflow-hidden">
+    <div className="h-full flex overflow-hidden" data-skip-port-shortcuts>
       <div className="w-[200px] border-r border-border-subtle bg-bg-surface/50 p-3 flex flex-col gap-0.5 overflow-y-auto">
         <div className="px-2 py-3 mb-1">
           <h2 className="text-base font-bold text-text-primary">Settings</h2>

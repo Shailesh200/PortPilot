@@ -144,7 +144,14 @@ export const usePortStore = create<PortState>((set, get) => ({
     })
   },
 
-  selectPort: (pid) => set({ selectedPids: new Set([pid]) }),
+  selectPort: (pid) => {
+    const { filteredPorts } = get()
+    const idx = filteredPorts.findIndex((p) => p.pid === pid)
+    set({
+      selectedPids: new Set([pid]),
+      ...(idx >= 0 ? { selectedIndex: idx } : {})
+    })
+  },
 
   togglePortSelection: (pid) => {
     const { selectedPids } = get()

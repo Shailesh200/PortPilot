@@ -4,8 +4,7 @@ import {
   crashReporter,
   globalShortcut,
   screen,
-  shell,
-  Menu
+  shell
 } from 'electron'
 import { readFileSync, writeFileSync } from 'fs'
 import { join } from 'path'
@@ -137,20 +136,6 @@ app.whenReady().then(() => {
   createWindow()
   registerGlobalShortcuts()
   createTray(mainWindow)
-
-  if (process.platform === 'darwin') {
-    app.dock.setMenu(
-      Menu.buildFromTemplate([
-        {
-          label: 'Show PortPilot',
-          click: () => {
-            mainWindow?.show()
-            mainWindow?.focus()
-          }
-        }
-      ])
-    )
-  }
 
   app.on('activate', () => {
     if (mainWindow) {

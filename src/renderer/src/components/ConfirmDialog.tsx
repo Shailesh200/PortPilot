@@ -42,6 +42,9 @@ export function ConfirmDialog({
 
   return (
     <div
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="confirm-dialog-title"
       className="fixed inset-0 z-[110] flex items-center justify-center bg-black/50 backdrop-blur-sm animate-fade-in"
       onClick={onCancel}
     >
@@ -58,7 +61,9 @@ export function ConfirmDialog({
               <Icon className="w-5 h-5" />
             </div>
             <div>
-              <h3 className="text-sm font-semibold text-text-primary">{title}</h3>
+              <h3 id="confirm-dialog-title" className="text-sm font-semibold text-text-primary">
+                {title}
+              </h3>
               <p className="text-xs text-text-muted mt-1 leading-relaxed">{message}</p>
             </div>
           </div>

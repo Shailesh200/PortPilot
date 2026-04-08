@@ -13,6 +13,7 @@ function getHeatColor(cpu: number, memory: number): string {
 
 export function Heatmap() {
   const filteredPorts = usePortStore((s) => s.filteredPorts)
+  const selectedIndex = usePortStore((s) => s.selectedIndex)
   const selectPort = usePortStore((s) => s.selectPort)
   const openQuickPeek = useUIStore((s) => s.openQuickPeek)
 
@@ -46,16 +47,27 @@ export function Heatmap() {
           </div>
         ) : (
           <div className="grid grid-cols-[repeat(auto-fill,minmax(140px,1fr))] gap-3">
-            {filteredPorts.map((port) => (
+            {filteredPorts.map((port, index) => (
               <button
                 key={`${port.pid}:${port.port}`}
+                type="button"
+                data-heatmap-cell={port.pid}
+                tabIndex={selectedIndex === index ? 0 : -1}
                 onClick={() => {
                   selectPort(port.pid)
                   openQuickPeek(port.pid)
                 }}
+                onKeyDown={(e) => {
+                  if (e.key === ' ') {
+                    e.preventDefault()
+                    selectPort(port.pid)
+                    openQuickPeek(port.pid)
+                  }
+                }}
                 className={clsx(
-                  'relative p-3 rounded-lg border transition-all hover:scale-[1.03] hover:shadow-lg text-left',
-                  getHeatColor(port.cpu, port.memory)
+                  'relative p-3 rounded-lg border transition-all hover:scale-[1.03] hover:shadow-lg text-left outline-none focus-visible:ring-2 focus-visible:ring-accent/60',
+                  getHeatColor(port.cpu, port.memory),
+                  selectedIndex === index && 'ring-2 ring-accent/50'
                 )}
               >
                 <p className="text-sm font-mono font-bold text-text-primary">

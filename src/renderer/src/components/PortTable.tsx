@@ -293,6 +293,7 @@ function PortRow({ port, index }: { port: PortInfo; index: number }) {
   const removeTag = usePortStore((s) => s.removeTag)
   const expandedRows = useUIStore((s) => s.expandedRows)
   const toggleRowExpansion = useUIStore((s) => s.toggleRowExpansion)
+  const openQuickPeek = useUIStore((s) => s.openQuickPeek)
   const activeProfileId = useSettingsStore((s) => s.activeProfileId)
   const profiles = useSettingsStore((s) => s.profiles)
 
@@ -310,8 +311,17 @@ function PortRow({ port, index }: { port: PortInfo; index: number }) {
   return (
     <>
       <tr
+        data-port-row={port.pid}
+        tabIndex={isHighlighted ? 0 : -1}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault()
+            e.stopPropagation()
+            openQuickPeek(port.pid)
+          }
+        }}
         className={clsx(
-          'group transition-colors border-b border-border-subtle/50',
+          'group transition-colors border-b border-border-subtle/50 outline-none focus-visible:ring-2 focus-visible:ring-accent/40 focus-visible:ring-inset',
           isHighlighted && 'bg-accent/5',
           isSelected && !isHighlighted && 'bg-accent/[0.03]',
           !isSelected && !isHighlighted && 'hover:bg-bg-hover/50'
@@ -574,7 +584,7 @@ export function PortTable() {
         </div>
       )}
 
-      <div className="flex-1 overflow-auto">
+      <div className="flex-1 overflow-auto" data-port-table>
         <table className="w-full">
           <thead className="sticky top-0 bg-bg-card z-10">
             <tr className="border-b border-border">
@@ -679,7 +689,7 @@ export function PortTable() {
             <span className="kbd">↑↓</span> navigate
           </span>
           <span>
-            <span className="kbd">Space</span> preview
+            <span className="kbd">Space</span> / <span className="kbd">↵</span> preview
           </span>
           <span>
             <span className="kbd">⋮</span> actions

@@ -3,6 +3,25 @@ import { usePortStore } from '../stores/portStore'
 import { useUIStore } from '../stores/uiStore'
 import { useSettingsStore } from '../stores/settingsStore'
 
+function shouldIgnorePortShortcuts(target: EventTarget | null): boolean {
+  if (!(target instanceof HTMLElement)) return false
+  const el = target
+  if (el.closest('[data-heatmap-cell]')) return false
+  if (el.closest('[data-skip-port-shortcuts]')) return true
+  if (el.closest('[role="dialog"]')) return true
+  const tag = el.tagName
+  if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || tag === 'BUTTON')
+    return true
+  if (el.isContentEditable) return true
+  if (
+    el.closest(
+      'a[href], [role="button"], [role="checkbox"], [role="switch"], [role="combobox"], [role="listbox"], [role="menuitem"], [role="tab"]'
+    )
+  )
+    return true
+  return false
+}
+
 export function useKeyboardShortcuts() {
   const moveSelection = usePortStore((s) => s.moveSelection)
   const filteredPorts = usePortStore((s) => s.filteredPorts)
@@ -24,6 +43,8 @@ export function useKeyboardShortcuts() {
   const confirmDestructive = useSettingsStore((s) => s.confirmDestructive)
   const protectSystemPorts = useSettingsStore((s) => s.protectSystemPorts)
   const showConfirm = useUIStore((s) => s.showConfirm)
+  const confirmDialog = useUIStore((s) => s.confirmDialog)
+  const currentView = useUIStore((s) => s.currentView)
 
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
@@ -66,6 +87,16 @@ export function useKeyboardShortcuts() {
         return
       }
 
+      if (confirmDialog) return
+
+      if (isQuickPeekOpen) return
+
+      const allowPortNav =
+        currentView === 'dashboard' || currentView === 'heatmap'
+      if (!allowPortNav) return
+
+      if (shouldIgnorePortShortcuts(e.target)) return
+
       if (e.key === '/') {
         e.preventDefault()
         document.getElementById('search-input')?.focus()
@@ -75,23 +106,36 @@ export function useKeyboardShortcuts() {
       if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
         e.preventDefault()
         moveSelection(e.key === 'ArrowUp' ? 'up' : 'down')
+        const { selectedIndex: idx, filteredPorts: ports } =
+          usePortStore.getState()
+        const p = ports[idx]
+        if (p) {
+          queueMicrotask(() => {
+            const view = useUIStore.getState().currentView
+            if (view === 'dashboard') {
+              document
+                .querySelector(`[data-port-row="${p.pid}"]`)
+                ?.focus()
+            } else if (view === 'heatmap') {
+              document
+                .querySelector(`[data-heatmap-cell="${p.pid}"]`)
+                ?.focus()
+            }
+          })
+        }
         return
       }
 
       if (e.key === 'ArrowRight') {
-        const port = filteredPorts[selectedIndex]
-        if (port) toggleRowExpansion(port.pid)
+        if (currentView === 'dashboard') {
+          const port = filteredPorts[selectedIndex]
+          if (port) toggleRowExpansion(port.pid)
+        }
         return
       }
 
       if (e.key === ' ') {
         e.preventDefault()
-        const port = filteredPorts[selectedIndex]
-        if (port) openQuickPeek(port.pid)
-        return
-      }
-
-      if (e.key === 'Enter') {
         const port = filteredPorts[selectedIndex]
         if (port) openQuickPeek(port.pid)
         return
@@ -188,6 +232,8 @@ export function useKeyboardShortcuts() {
     toggleRowExpansion,
     confirmDestructive,
     protectSystemPorts,
-    showConfirm
+    showConfirm,
+    confirmDialog,
+    currentView
   ])
 }
