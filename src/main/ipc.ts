@@ -13,6 +13,7 @@ import {
   getProcessLogs
 } from './services/process-manager'
 import type { PortInfo, ProfilesPersistState, Profile } from '../shared/types'
+import { registerWorkbenchIpc } from './modules/workbench-ipc'
 
 export function notifyProfilesChanged(): void {
   for (const w of BrowserWindow.getAllWindows()) {
@@ -212,6 +213,7 @@ export function registerIpcHandlers(): void {
     return true
   })
 
+  registerWorkbenchIpc()
 }
 
 let currentIntervalMs = 3000

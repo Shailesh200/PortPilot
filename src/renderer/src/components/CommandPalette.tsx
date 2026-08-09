@@ -43,7 +43,8 @@ export function CommandPalette() {
   const openInTerminal = usePortStore((s) => s.openInTerminal)
   const openInVSCode = usePortStore((s) => s.openInVSCode)
   const closeCommandPalette = useUIStore((s) => s.closeCommandPalette)
-  const setView = useUIStore((s) => s.setView)
+  const openModule = useUIStore((s) => s.openModule)
+  const setNav = useUIStore((s) => s.setNav)
   const addToast = useUIStore((s) => s.addToast)
   const showConfirm = useUIStore((s) => s.showConfirm)
   const confirmDestructive = useSettingsStore((s) => s.confirmDestructive)
@@ -140,37 +141,79 @@ export function CommandPalette() {
 
     const items: CommandItem[] = [
       {
-        id: 'nav-dashboard',
-        label: 'Go to Dashboard',
+        id: 'nav-ports',
+        label: 'Go to Ports',
         icon: LayoutDashboard,
         category: 'navigation',
         handler: () => {
-          setView('dashboard')
+          openModule('ports')
           closeCommandPalette()
         },
         shortcut: '⌘1'
       },
       {
-        id: 'nav-heatmap',
-        label: 'Go to Heatmap',
+        id: 'nav-ports-heatmap',
+        label: 'Ports · Heatmap',
         icon: Grid3x3,
         category: 'navigation',
         handler: () => {
-          setView('heatmap')
+          setNav({ module: 'ports', screen: 'heatmap' })
+          closeCommandPalette()
+        }
+      },
+      {
+        id: 'nav-ports-logs',
+        label: 'Ports · Logs',
+        icon: ScrollText,
+        category: 'navigation',
+        handler: () => {
+          setNav({ module: 'ports', screen: 'logs' })
+          closeCommandPalette()
+        }
+      },
+      {
+        id: 'nav-text',
+        label: 'Go to Text & Data',
+        icon: Hash,
+        category: 'navigation',
+        handler: () => {
+          openModule('text')
           closeCommandPalette()
         },
         shortcut: '⌘2'
       },
       {
-        id: 'nav-logs',
-        label: 'Go to Logs',
-        icon: ScrollText,
+        id: 'nav-clipboard',
+        label: 'Go to Clipboard',
+        icon: Hash,
         category: 'navigation',
         handler: () => {
-          setView('logs')
+          openModule('clipboard')
           closeCommandPalette()
         },
         shortcut: '⌘3'
+      },
+      {
+        id: 'nav-database',
+        label: 'Go to Database',
+        icon: Hash,
+        category: 'navigation',
+        handler: () => {
+          openModule('database')
+          closeCommandPalette()
+        },
+        shortcut: '⌘4'
+      },
+      {
+        id: 'nav-git',
+        label: 'Go to Git',
+        icon: Hash,
+        category: 'navigation',
+        handler: () => {
+          openModule('git')
+          closeCommandPalette()
+        },
+        shortcut: '⌘5'
       },
       {
         id: 'nav-settings',
@@ -178,7 +221,7 @@ export function CommandPalette() {
         icon: Settings,
         category: 'navigation',
         handler: () => {
-          setView('settings')
+          openModule('settings')
           closeCommandPalette()
         },
         shortcut: '⌘,'
@@ -249,7 +292,8 @@ export function CommandPalette() {
     openInTerminal,
     openInVSCode,
     closeCommandPalette,
-    setView,
+    openModule,
+    setNav,
     addToast
   ])
 

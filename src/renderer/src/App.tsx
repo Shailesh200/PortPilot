@@ -4,15 +4,17 @@ import { useUIStore } from './stores/uiStore'
 import { useSettingsStore } from './stores/settingsStore'
 import { Sidebar } from './components/Sidebar'
 import { TitleBar } from './components/TitleBar'
-import { Dashboard } from './components/Dashboard'
-import { Heatmap } from './components/Heatmap'
-import { LogViewer } from './components/LogViewer'
 import { Settings } from './components/Settings'
 import { CommandPalette } from './components/CommandPalette'
 import { QuickPeek } from './components/QuickPeek'
 import { ToastContainer } from './components/Toast'
 import { ConfirmDialog } from './components/ConfirmDialog'
 import { useKeyboardShortcuts } from './hooks/useKeyboardShortcuts'
+import { PortsModule } from './modules/ports/PortsModule'
+import { TextModule } from './modules/text/TextModule'
+import { ClipboardModule } from './modules/clipboard/ClipboardModule'
+import { DatabaseModule } from './modules/database/DatabaseModule'
+import { GitModule } from './modules/git/GitModule'
 
 function applyActiveProfileFilter(): void {
   const { activeProfileId, profiles } = useSettingsStore.getState()
@@ -29,7 +31,7 @@ function applyActiveProfileFilter(): void {
 export default function App() {
   const fetchPorts = usePortStore((s) => s.fetchPorts)
   const setPorts = usePortStore((s) => s.setPorts)
-  const currentView = useUIStore((s) => s.currentView)
+  const nav = useUIStore((s) => s.nav)
   const isCommandPaletteOpen = useUIStore((s) => s.isCommandPaletteOpen)
   const isQuickPeekOpen = useUIStore((s) => s.isQuickPeekOpen)
   const darkMode = useSettingsStore((s) => s.darkMode)
@@ -221,19 +223,23 @@ export default function App() {
   }, [fetchPorts, setPorts])
 
   const renderView = useCallback(() => {
-    switch (currentView) {
-      case 'dashboard':
-        return <Dashboard />
-      case 'heatmap':
-        return <Heatmap />
-      case 'logs':
-        return <LogViewer />
+    switch (nav.module) {
+      case 'ports':
+        return <PortsModule />
+      case 'text':
+        return <TextModule />
+      case 'clipboard':
+        return <ClipboardModule />
+      case 'database':
+        return <DatabaseModule />
+      case 'git':
+        return <GitModule />
       case 'settings':
         return <Settings />
       default:
-        return <Dashboard />
+        return <PortsModule />
     }
-  }, [currentView])
+  }, [nav.module])
 
   return (
     <div className="flex h-screen w-screen overflow-hidden bg-bg">

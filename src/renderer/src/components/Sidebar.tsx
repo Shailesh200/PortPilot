@@ -1,7 +1,9 @@
 import {
-  LayoutDashboard,
-  Grid3x3,
-  ScrollText,
+  Network,
+  FileJson,
+  Clipboard,
+  Database,
+  GitBranch,
   Settings,
   ChevronLeft
 } from 'lucide-react'
@@ -9,28 +11,33 @@ import { useUIStore } from '../stores/uiStore'
 import { useSettingsStore } from '../stores/settingsStore'
 import { usePortStore } from '../stores/portStore'
 import { clsx } from 'clsx'
-import type { ViewType } from '../../../shared/types'
+import type { ModuleId } from '../../../shared/types'
+import { MODULE_REGISTRY } from '../../../shared/modules/registry'
 
-const navItems: {
-  id: ViewType
-  icon: typeof LayoutDashboard
-  label: string
-  shortcut: string
-}[] = [
-  { id: 'dashboard', icon: LayoutDashboard, label: 'Dashboard', shortcut: '⌘1' },
-  { id: 'heatmap', icon: Grid3x3, label: 'Heatmap', shortcut: '⌘2' },
-  { id: 'logs', icon: ScrollText, label: 'Logs', shortcut: '⌘3' }
-]
+const icons: Record<ModuleId, typeof Network> = {
+  ports: Network,
+  text: FileJson,
+  clipboard: Clipboard,
+  database: Database,
+  git: GitBranch,
+  settings: Settings
+}
+
+const primaryNav = MODULE_REGISTRY.filter((m) => m.id !== 'settings').sort(
+  (a, b) => a.order - b.order
+)
 
 export function Sidebar() {
-  const currentView = useUIStore((s) => s.currentView)
-  const setView = useUIStore((s) => s.setView)
+  const nav = useUIStore((s) => s.nav)
+  const openModule = useUIStore((s) => s.openModule)
   const isSidebarCollapsed = useUIStore((s) => s.isSidebarCollapsed)
   const toggleSidebar = useUIStore((s) => s.toggleSidebar)
   const profiles = useSettingsStore((s) => s.profiles)
   const activeProfileId = useSettingsStore((s) => s.activeProfileId)
   const setActiveProfile = useSettingsStore((s) => s.setActiveProfile)
   const setProfileFilter = usePortStore((s) => s.setProfileFilter)
+
+  const showProfiles = nav.module === 'ports'
 
   return (
     <aside
@@ -39,36 +46,41 @@ export function Sidebar() {
         isSidebarCollapsed ? 'w-[60px]' : 'w-[220px]'
       )}
     >
-      <nav className="flex-1 p-3 space-y-1">
+      <nav className="flex-1 p-3 space-y-1 overflow-y-auto">
         <div className="mb-4">
           {!isSidebarCollapsed && (
             <span className="text-[10px] uppercase tracking-widest text-text-muted font-semibold px-2">
-              Navigation
+              Modules
             </span>
           )}
         </div>
-        {navItems.map(({ id, icon: Icon, label, shortcut }) => (
-          <button
-            key={id}
-            onClick={() => setView(id)}
-            className={clsx(
-              'w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm transition-all duration-150',
-              currentView === id
-                ? 'bg-accent/10 text-accent'
-                : 'text-text-secondary hover:text-text-primary hover:bg-bg-hover'
-            )}
-          >
-            <Icon className="w-4 h-4 flex-shrink-0" />
-            {!isSidebarCollapsed && (
-              <>
-                <span className="flex-1 text-left">{label}</span>
-                <span className="kbd text-[9px]">{shortcut}</span>
-              </>
-            )}
-          </button>
-        ))}
+        {primaryNav.map((mod) => {
+          const Icon = icons[mod.id]
+          const active = nav.module === mod.id
+          return (
+            <button
+              key={mod.id}
+              onClick={() => openModule(mod.id)}
+              title={mod.description}
+              className={clsx(
+                'w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm transition-all duration-150',
+                active
+                  ? 'bg-accent/10 text-accent'
+                  : 'text-text-secondary hover:text-text-primary hover:bg-bg-hover'
+              )}
+            >
+              <Icon className="w-4 h-4 flex-shrink-0" />
+              {!isSidebarCollapsed && (
+                <>
+                  <span className="flex-1 text-left">{mod.label}</span>
+                  <span className="kbd text-[9px]">{mod.shortcut}</span>
+                </>
+              )}
+            </button>
+          )
+        })}
 
-        {!isSidebarCollapsed && (
+        {showProfiles && !isSidebarCollapsed && (
           <div className="pt-6">
             <span className="text-[10px] uppercase tracking-widest text-text-muted font-semibold px-2">
               Profiles
@@ -78,7 +90,8 @@ export function Sidebar() {
                 <button
                   key={profile.id}
                   onClick={() => {
-                    const newId = activeProfileId === profile.id ? null : profile.id
+                    const newId =
+                      activeProfileId === profile.id ? null : profile.id
                     setActiveProfile(newId)
                     if (newId) {
                       setProfileFilter(profile.favoritePorts)
@@ -104,10 +117,10 @@ export function Sidebar() {
 
       <div className="p-3 border-t border-border-subtle space-y-1">
         <button
-          onClick={() => setView('settings')}
+          onClick={() => openModule('settings')}
           className={clsx(
             'w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm transition-all',
-            currentView === 'settings'
+            nav.module === 'settings'
               ? 'bg-accent/10 text-accent'
               : 'text-text-secondary hover:text-text-primary hover:bg-bg-hover'
           )}

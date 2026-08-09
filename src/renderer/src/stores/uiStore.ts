@@ -1,8 +1,10 @@
 import { create } from 'zustand'
-import type { ViewType, Toast } from '../../../shared/types'
+import type { ModuleId, NavLocation, Toast } from '../../../shared/types'
+import { DEFAULT_NAV } from '../../../shared/types'
 
 interface UIState {
-  currentView: ViewType
+  nav: NavLocation
+  navStack: NavLocation[]
   isCommandPaletteOpen: boolean
   isQuickPeekOpen: boolean
   quickPeekPid: number | null
@@ -18,7 +20,11 @@ interface UIState {
     onConfirm: () => void
   } | null
 
-  setView: (view: ViewType) => void
+  setNav: (nav: NavLocation, pushStack?: boolean) => void
+  goBack: () => void
+  openModule: (module: ModuleId) => void
+  /** @deprecated use setNav / openModule */
+  setView: (view: string) => void
   toggleCommandPalette: () => void
   closeCommandPalette: () => void
   openQuickPeek: (pid: number) => void
@@ -37,8 +43,48 @@ interface UIState {
   hideConfirm: () => void
 }
 
+function defaultForModule(module: ModuleId): NavLocation {
+  switch (module) {
+    case 'ports':
+      return { module: 'ports', screen: 'dashboard' }
+    case 'text':
+      return { module: 'text', screen: 'landing' }
+    case 'clipboard':
+      return { module: 'clipboard', screen: 'history' }
+    case 'database':
+      return { module: 'database', screen: 'connections' }
+    case 'git':
+      return { module: 'git', screen: 'changes' }
+    case 'settings':
+      return { module: 'settings', screen: 'general' }
+  }
+}
+
+/** Map legacy view ids to NavLocation for transitional call sites */
+function legacyViewToNav(view: string): NavLocation {
+  switch (view) {
+    case 'dashboard':
+      return { module: 'ports', screen: 'dashboard' }
+    case 'heatmap':
+      return { module: 'ports', screen: 'heatmap' }
+    case 'logs':
+      return { module: 'ports', screen: 'logs' }
+    case 'settings':
+      return { module: 'settings', screen: 'general' }
+    case 'ports':
+    case 'text':
+    case 'clipboard':
+    case 'database':
+    case 'git':
+      return defaultForModule(view)
+    default:
+      return DEFAULT_NAV
+  }
+}
+
 export const useUIStore = create<UIState>((set, get) => ({
-  currentView: 'dashboard',
+  nav: DEFAULT_NAV,
+  navStack: [],
   isCommandPaletteOpen: false,
   isQuickPeekOpen: false,
   quickPeekPid: null,
@@ -47,7 +93,29 @@ export const useUIStore = create<UIState>((set, get) => ({
   expandedRows: new Set(),
   confirmDialog: null,
 
-  setView: (view) => set({ currentView: view }),
+  setNav: (nav, pushStack = true) =>
+    set((s) => ({
+      nav,
+      navStack: pushStack
+        ? [...s.navStack.slice(-7), s.nav]
+        : s.navStack
+    })),
+
+  goBack: () =>
+    set((s) => {
+      if (s.navStack.length === 0) return s
+      const stack = [...s.navStack]
+      const prev = stack.pop()!
+      return { nav: prev, navStack: stack }
+    }),
+
+  openModule: (module) => {
+    get().setNav(defaultForModule(module))
+  },
+
+  setView: (view) => {
+    get().setNav(legacyViewToNav(view))
+  },
 
   toggleCommandPalette: () =>
     set((s) => ({ isCommandPaletteOpen: !s.isCommandPaletteOpen })),
@@ -74,7 +142,6 @@ export const useUIStore = create<UIState>((set, get) => ({
   addToast: (toast) => {
     const id = crypto.randomUUID()
     set((s) => ({ toasts: [...s.toasts, { ...toast, id }] }))
-    // duration === 0 means sticky (manual dismiss only)
     const ms = toast.duration ?? 4000
     if (ms > 0) {
       setTimeout(() => get().removeToast(id), ms)
