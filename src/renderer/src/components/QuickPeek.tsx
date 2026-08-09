@@ -36,7 +36,9 @@ export function QuickPeek() {
   if (!quickPeekPid) return null
 
   const port = filteredPorts.find((p) => p.pid === quickPeekPid)
-  const details = processDetails
+  // Guard against stale details from a previous QuickPeek open.
+  const details =
+    processDetails?.pid === quickPeekPid ? processDetails : null
 
   return (
     <div
@@ -188,7 +190,7 @@ export function QuickPeek() {
               </button>
               <button
                 onClick={() => {
-                  openInTerminal(port.pid)
+                  openInTerminal(port.pid, port.projectPath)
                   closeQuickPeek()
                 }}
                 className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-success-muted text-success hover:bg-success/20 text-xs font-medium transition-colors"
@@ -198,7 +200,7 @@ export function QuickPeek() {
               </button>
               <button
                 onClick={() => {
-                  openInVSCode(port.pid)
+                  openInVSCode(port.pid, port.projectPath)
                   closeQuickPeek()
                 }}
                 className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-accent-muted text-accent hover:bg-accent/20 text-xs font-medium transition-colors"

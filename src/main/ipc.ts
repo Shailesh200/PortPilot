@@ -1,4 +1,4 @@
-import { ipcMain, BrowserWindow } from 'electron'
+import { ipcMain, BrowserWindow, globalShortcut, app } from 'electron'
 import log from './logger'
 import { loadProfilesState, saveProfilesState } from './profiles-persistence'
 import { scanPorts } from './services/port-scanner'
@@ -49,25 +49,58 @@ function validatePort(port: unknown): port is number {
 }
 
 let currentShortcutCallback: (() => void) | null = null
+let registeredShortcut: string | null = null
 
 export function setShortcutCallback(callback: () => void): void {
   currentShortcutCallback = callback
 }
 
+export function getRegisteredShortcut(): string | null {
+  return registeredShortcut
+}
+
 export function updateGlobalShortcut(shortcut: string): boolean {
-  const { globalShortcut } = require('electron')
-  globalShortcut.unregisterAll()
+  if (shortcut === registeredShortcut) return true
   const invoke = () => {
     if (currentShortcutCallback) currentShortcutCallback()
   }
+  // Register the new accelerator BEFORE dropping the old one, so a failed
+  // registration (invalid or taken by another app) leaves the old shortcut
+  // working instead of unregistering everything.
   try {
-    const ok = globalShortcut.register(shortcut, invoke)
-    if (ok) return true
+    if (!globalShortcut.register(shortcut, invoke)) return false
   } catch {
-    /* invalid accelerator may throw in some Electron versions */
+    return false
   }
-  globalShortcut.register('CommandOrControl+Shift+P', invoke)
-  return false
+  if (registeredShortcut) {
+    try {
+      globalShortcut.unregister(registeredShortcut)
+    } catch {
+      /* ignore */
+    }
+  }
+  registeredShortcut = shortcut
+  return true
+}
+
+interface SafetySettings {
+  protectSystemPorts: boolean
+  confirmDestructive: boolean
+}
+
+let safetySettings: SafetySettings = {
+  protectSystemPorts: true,
+  confirmDestructive: true
+}
+
+export function getSafetySettings(): SafetySettings {
+  return safetySettings
+}
+
+/** A pid is protected when it owns a port the scanner flagged as critical. */
+export function isProtectedPid(pid: number): boolean {
+  if (!safetySettings.protectSystemPorts) return false
+  return lastPorts.some((p) => p.pid === pid && p.isCritical)
 }
 
 export function registerIpcHandlers(): void {
@@ -88,12 +121,17 @@ export function registerIpcHandlers(): void {
 
   ipcMain.handle('kill-process', async (_event, pid: number, force?: boolean) => {
     if (!validatePid(pid)) return false
+    if (isProtectedPid(pid)) {
+      log.warn(`Refused to kill protected system process pid=${pid}`)
+      return false
+    }
     return killProcess(pid, force)
   })
 
   ipcMain.handle('kill-processes', async (_event, pids: number[]) => {
     if (!Array.isArray(pids) || !pids.every(validatePid)) return []
-    return killProcesses(pids)
+    const allowed = pids.filter((pid) => !isProtectedPid(pid))
+    return killProcesses(allowed)
   })
 
   ipcMain.handle('open-in-browser', async (_event, port: number) => {
@@ -113,18 +151,42 @@ export function registerIpcHandlers(): void {
 
   ipcMain.handle('restart-process', async (_event, pid: number, projectPath?: string) => {
     if (!validatePid(pid)) return { success: false, error: 'Invalid PID' }
+    if (isProtectedPid(pid)) {
+      log.warn(`Refused to restart protected system process pid=${pid}`)
+      return { success: false, error: 'This is a protected system process.' }
+    }
     return restartProcess(pid, typeof projectPath === 'string' ? projectPath : undefined)
   })
 
   ipcMain.handle('update-poll-interval', async (_event, intervalMs: number) => {
-    if (typeof intervalMs !== 'number' || intervalMs < 1000 || intervalMs > 30000) return
-    currentIntervalMs = intervalMs
+    // NaN slips past a plain `< 1000` comparison and would busy-loop the poller
+    if (typeof intervalMs !== 'number' || !Number.isFinite(intervalMs)) return
+    currentIntervalMs = Math.min(30000, Math.max(1000, Math.round(intervalMs)))
   })
 
   ipcMain.handle('update-global-shortcut', async (_event, shortcut: string) => {
-    if (typeof shortcut !== 'string' || shortcut.length === 0) return false
+    if (typeof shortcut !== 'string' || shortcut.length === 0 || shortcut.length > 100) {
+      return false
+    }
     return updateGlobalShortcut(shortcut)
   })
+
+  ipcMain.handle('update-safety-settings', async (_event, settings: unknown) => {
+    if (!settings || typeof settings !== 'object') return
+    const s = settings as Partial<SafetySettings>
+    safetySettings = {
+      protectSystemPorts:
+        typeof s.protectSystemPorts === 'boolean'
+          ? s.protectSystemPorts
+          : safetySettings.protectSystemPorts,
+      confirmDestructive:
+        typeof s.confirmDestructive === 'boolean'
+          ? s.confirmDestructive
+          : safetySettings.confirmDestructive
+    }
+  })
+
+  ipcMain.handle('get-app-version', async () => app.getVersion())
 
   ipcMain.handle('load-profiles', async () => loadProfilesState())
 
@@ -158,16 +220,32 @@ export function startPortPolling(window: BrowserWindow, intervalMs = 3000): void
   currentIntervalMs = intervalMs
   stopPortPolling()
 
+  // Refresh the renderer as soon as it becomes visible again — updates are
+  // skipped while hidden, so without this the UI would show stale data for
+  // up to a full (hidden) poll cycle.
+  window.on('show', () => {
+    if (!window.isDestroyed()) {
+      window.webContents.send('ports-updated', lastPorts)
+    }
+  })
+
   async function poll(): Promise<void> {
+    const visible = !window.isDestroyed() && window.isVisible()
+    // Hidden windows don't need live data; poll slowly just to keep the
+    // tray menu fresh instead of running lsof every few seconds forever.
+    const effectiveInterval = visible
+      ? currentIntervalMs
+      : Math.max(currentIntervalMs, 10000)
+
     if (scanning) {
-      pollingTimeout = setTimeout(poll, currentIntervalMs)
+      pollingTimeout = setTimeout(poll, effectiveInterval)
       return
     }
     scanning = true
     try {
       const ports = await scanPorts()
       lastPorts = ports
-      if (!window.isDestroyed()) {
+      if (visible && !window.isDestroyed()) {
         window.webContents.send('ports-updated', ports)
       }
       for (const listener of portChangeListeners) {
@@ -178,7 +256,7 @@ export function startPortPolling(window: BrowserWindow, intervalMs = 3000): void
     } finally {
       scanning = false
     }
-    pollingTimeout = setTimeout(poll, currentIntervalMs)
+    pollingTimeout = setTimeout(poll, effectiveInterval)
   }
 
   pollingTimeout = setTimeout(poll, 0)

@@ -78,6 +78,12 @@ export interface ProfilesPersistState {
   activeProfileId: string | null
 }
 
+export interface UpdateInfo {
+  version: string
+  status: 'available' | 'downloaded' | 'error'
+  message?: string
+}
+
 export interface IpcApi {
   getPorts: () => Promise<PortInfo[]>
   getProcessDetails: (pid: number) => Promise<ProcessDetails | null>
@@ -94,9 +100,16 @@ export interface IpcApi {
   }>
   updatePollInterval: (intervalMs: number) => Promise<void>
   updateGlobalShortcut: (shortcut: string) => Promise<boolean>
+  updateSafetySettings: (settings: {
+    protectSystemPorts: boolean
+    confirmDestructive: boolean
+  }) => Promise<void>
   loadProfiles: () => Promise<ProfilesPersistState>
   saveProfiles: (state: ProfilesPersistState) => Promise<boolean>
+  getAppVersion: () => Promise<string>
+  quitAndInstall: () => Promise<void>
   onPortsUpdate: (callback: (ports: PortInfo[]) => void) => () => void
   onFocusSearch: (callback: () => void) => () => void
   onProfilesChanged: (callback: () => void) => () => void
+  onUpdateStatus: (callback: (info: UpdateInfo) => void) => () => void
 }

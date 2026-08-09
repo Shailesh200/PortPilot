@@ -316,6 +316,7 @@ function PortRow({ port, index }: { port: PortInfo; index: number }) {
   const openQuickPeek = useUIStore((s) => s.openQuickPeek)
   const activeProfileId = useSettingsStore((s) => s.activeProfileId)
   const profiles = useSettingsStore((s) => s.profiles)
+  const highlightCritical = useSettingsStore((s) => s.highlightCritical)
 
   const activeProfile = activeProfileId ? profiles.find((p) => p.id === activeProfileId) : null
   const isFavorite = activeProfile ? activeProfile.favoritePorts.includes(port.port) : false
@@ -380,7 +381,9 @@ function PortRow({ port, index }: { port: PortInfo; index: number }) {
         <td className="py-2.5 px-3">
           <div className="flex items-center gap-2">
             {isFavorite && <Star className="w-3 h-3 text-warning fill-warning" />}
-            {port.isCritical && <Shield className="w-3 h-3 text-warning" />}
+            {highlightCritical && port.isCritical && (
+              <Shield className="w-3 h-3 text-warning" />
+            )}
             <span className="font-mono text-sm font-semibold text-text-primary">
               {port.port}
             </span>
@@ -655,7 +658,6 @@ export function PortTable() {
               </tr>
             ) : groupedPorts ? (
               groupedPorts.map(([projectName, ports]) => {
-                const startIdx = filteredPorts.indexOf(ports[0])
                 return (
                   <React.Fragment key={projectName}>
                     <tr className="bg-bg-surface/50">
@@ -667,13 +669,20 @@ export function PortTable() {
                         </div>
                       </td>
                     </tr>
-                    {ports.map((port, i) => (
-                      <PortRow
-                        key={`${port.pid}:${port.port}`}
-                        port={port}
-                        index={startIdx + i}
-                      />
-                    ))}
+                    {ports.map((port) => {
+                      // Look up the real index in filteredPorts — group order
+                      // doesn't match sort order, so startIdx+i was wrong.
+                      const index = filteredPorts.findIndex(
+                        (p) => p.pid === port.pid && p.port === port.port
+                      )
+                      return (
+                        <PortRow
+                          key={`${port.pid}:${port.port}`}
+                          port={port}
+                          index={index}
+                        />
+                      )
+                    })}
                   </React.Fragment>
                 )
               })

@@ -1,7 +1,9 @@
-import { useState, type ChangeEventHandler } from 'react'
+import { useState, useEffect, type ChangeEventHandler } from 'react'
 import { useSettingsStore } from '../stores/settingsStore'
 import { usePortStore } from '../stores/portStore'
 import { useUIStore } from '../stores/uiStore'
+import type { AppSettings, Profile } from '../../../shared/types'
+import { DEFAULT_SETTINGS } from '../../../shared/defaults'
 import {
   Settings as SettingsIcon,
   Monitor,
@@ -201,10 +203,10 @@ function GeneralSettings() {
             }}
             className="bg-bg-elevated border border-border-strong rounded-md px-2.5 py-1 text-xs text-text-primary focus:outline-none focus:border-accent/50 cursor-pointer"
           >
-            <option value="CommandOrControl+Shift+P">⌘⇧P</option>
+            <option value="CommandOrControl+Alt+P">⌘⌥P (default)</option>
             <option value="CommandOrControl+Shift+Space">⌘⇧Space</option>
             <option value="CommandOrControl+Shift+L">⌘⇧L</option>
-            <option value="CommandOrControl+Alt+P">⌘⌥P</option>
+            <option value="CommandOrControl+Shift+P">⌘⇧P (VS Code palette)</option>
           </select>
         </div>
       </SettingRow>
@@ -485,17 +487,52 @@ function SafetySettings() {
     reader.onload = (ev) => {
       try {
         const data = JSON.parse(ev.target?.result as string)
-        const { updateSettings } = useSettingsStore.getState()
-        const { profiles, activeProfileId, ...settings } = data
-        updateSettings(settings)
-        if (Array.isArray(profiles)) {
+        if (!data || typeof data !== 'object') throw new Error('invalid')
+
+        // Only accept known AppSettings keys with matching types — a
+        // hostile/garbled JSON file used to clobber the store with junk.
+        const sanitized: Partial<AppSettings> = {}
+        for (const key of Object.keys(DEFAULT_SETTINGS) as (keyof AppSettings)[]) {
+          const expected = typeof DEFAULT_SETTINGS[key]
+          if (typeof data[key] === expected) {
+            ;(sanitized as Record<string, unknown>)[key] = data[key]
+          }
+        }
+        useSettingsStore.getState().updateSettings(sanitized)
+
+        if (Array.isArray(data.profiles)) {
+          const profiles = (data.profiles as unknown[])
+            .filter((p): p is Profile => {
+              return (
+                !!p &&
+                typeof p === 'object' &&
+                typeof (p as Profile).id === 'string' &&
+                typeof (p as Profile).name === 'string' &&
+                Array.isArray((p as Profile).favoritePorts)
+              )
+            })
+            .map((p) => ({
+              id: p.id,
+              name: p.name,
+              icon: typeof p.icon === 'string' ? p.icon : '🔧',
+              favoritePorts: p.favoritePorts.filter(
+                (n) => typeof n === 'number' && n > 0 && n <= 65535
+              ),
+              filters:
+                typeof p.filters === 'object' && p.filters ? p.filters : {},
+              autoActions:
+                typeof p.autoActions === 'object' && p.autoActions
+                  ? p.autoActions
+                  : {}
+            }))
           const aid =
-            activeProfileId === null || typeof activeProfileId === 'string'
-              ? activeProfileId
+            data.activeProfileId === null ||
+            typeof data.activeProfileId === 'string'
+              ? data.activeProfileId
               : null
           useSettingsStore.getState().applyLoadedProfiles(profiles, aid)
           void window.api.saveProfiles({ profiles, activeProfileId: aid })
-          const pr = aid && profiles.find((p: { id: string }) => p.id === aid)
+          const pr = aid && profiles.find((p) => p.id === aid)
           if (pr?.favoritePorts) {
             usePortStore.getState().setProfileFilter(pr.favoritePorts)
           } else {
@@ -546,7 +583,7 @@ function SafetySettings() {
 
       <SettingRow
         label="Protect system ports"
-        description="Require force-kill for ports below 1024"
+        description="Block kill/restart for system & well-known ports (below 1024, plus 5432, 3306, 6379, etc.)"
       >
         <Toggle
           checked={protectSystemPorts}
@@ -827,7 +864,12 @@ const tabComponents: Record<SettingsTab, () => JSX.Element> = {
 
 export function Settings() {
   const [activeTab, setActiveTab] = useState<SettingsTab>('general')
+  const [appVersion, setAppVersion] = useState('')
   const ActivePanel = tabComponents[activeTab]
+
+  useEffect(() => {
+    void window.api.getAppVersion().then(setAppVersion).catch(() => {})
+  }, [])
 
   return (
     <div className="h-full flex overflow-hidden" data-skip-port-shortcuts>
@@ -857,7 +899,7 @@ export function Settings() {
         <div className="px-2 pt-3 mt-2 border-t border-border-subtle">
           <div className="flex items-center gap-2 text-[10px] text-text-muted">
             <Zap className="w-3 h-3" />
-            <span>PortPilot v1.0.0</span>
+            <span>PortPilot{appVersion ? ` v${appVersion}` : ''}</span>
           </div>
         </div>
       </div>

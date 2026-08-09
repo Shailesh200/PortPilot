@@ -68,6 +68,9 @@ jobs:
       - name: Install dependencies
         run: bun install
 
+      - name: Typecheck
+        run: bun run typecheck
+
       - name: Build app
         run: bun run build
 
@@ -95,6 +98,9 @@ jobs:
 
       - name: Install dependencies
         run: bun install
+
+      - name: Typecheck
+        run: bun run typecheck
 
       - name: Build app
         run: bun run build

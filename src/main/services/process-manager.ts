@@ -1,4 +1,4 @@
-import { exec, spawn, execFile } from 'child_process'
+import { spawn, execFile } from 'child_process'
 import { promisify } from 'util'
 import { writeFileSync, unlinkSync } from 'fs'
 import { tmpdir } from 'os'
@@ -6,14 +6,43 @@ import { join } from 'path'
 import { shell } from 'electron'
 import type { ProcessDetails } from '../../shared/types'
 
-const execAsync = promisify(exec)
 const execFileAsync = promisify(execFile)
 
-export async function getProcessDetails(pid: number): Promise<ProcessDetails | null> {
+/** execFile that never rejects — non-zero exits and missing binaries yield empty stdout. */
+async function execFileSafe(
+  cmd: string,
+  args: string[]
+): Promise<{ stdout: string; stderr: string }> {
   try {
-    const { stdout } = await execAsync(
-      `ps -p ${pid} -o pid=,%cpu=,%mem=,rss=,etime=,user=,command= 2>/dev/null`
-    )
+    return await execFileAsync(cmd, args)
+  } catch {
+    return { stdout: '', stderr: '' }
+  }
+}
+
+function isValidPid(pid: number): boolean {
+  return Number.isInteger(pid) && pid > 0
+}
+
+/** POSIX single-quote escaping — safe for embedding in shell commands. */
+function shQuote(s: string): string {
+  return `'${s.replace(/'/g, `'\\''`)}'`
+}
+
+/** Escape a string for embedding inside an AppleScript "..." literal. */
+function asQuote(s: string): string {
+  return s.replace(/\\/g, '\\\\').replace(/"/g, '\\"')
+}
+
+export async function getProcessDetails(pid: number): Promise<ProcessDetails | null> {
+  if (!isValidPid(pid)) return null
+  try {
+    const { stdout } = await execFileSafe('ps', [
+      '-p',
+      String(pid),
+      '-o',
+      'pid=,%cpu=,%mem=,rss=,etime=,user=,command='
+    ])
 
     const line = stdout.trim()
     if (!line) return null
@@ -23,9 +52,7 @@ export async function getProcessDetails(pid: number): Promise<ProcessDetails | n
 
     const fullCommand = parts.slice(6).join(' ')
 
-    const { stdout: childrenOut } = await execAsync(
-      `pgrep -P ${pid} 2>/dev/null || true`
-    )
+    const { stdout: childrenOut } = await execFileSafe('pgrep', ['-P', String(pid)])
     const children = childrenOut
       .trim()
       .split('\n')
@@ -33,9 +60,14 @@ export async function getProcessDetails(pid: number): Promise<ProcessDetails | n
       .map(Number)
       .filter((n) => !isNaN(n))
 
-    const { stdout: portsOut } = await execAsync(
-      `lsof -p ${pid} -iTCP -sTCP:LISTEN -P -n 2>/dev/null || true`
-    )
+    const { stdout: portsOut } = await execFileSafe('lsof', [
+      '-p',
+      String(pid),
+      '-iTCP',
+      '-sTCP:LISTEN',
+      '-P',
+      '-n'
+    ])
     const ports: number[] = []
     for (const pLine of portsOut.trim().split('\n').slice(1)) {
       const match = pLine.match(/:(\d+)\s/)
@@ -92,36 +124,47 @@ function scoreLogPath(p: string): number {
 }
 
 export async function getProcessLogs(pid: number): Promise<string[]> {
+  if (!isValidPid(pid)) return ['Invalid process id.']
   const lines: string[] = []
   const logFiles = new Set<string>()
 
   const cwd = await resolveProcessCwd(pid)
 
-  try {
-    const { stdout: fnOut } = await execAsync(`lsof -p ${pid} -Fn 2>/dev/null || true`)
-    for (const line of fnOut.split('\n')) {
-      if (line.startsWith('n/')) {
-        const filePath = line.slice(1).split('\0')[0]
-        if (!filePath.startsWith('/')) continue
-        if (isNoisePath(filePath)) continue
-        if (filePath.length > 4096) continue
-        logFiles.add(filePath)
-      }
+  const { stdout: fnOut } = await execFileSafe('lsof', ['-p', String(pid), '-Fn'])
+  for (const line of fnOut.split('\n')) {
+    if (line.startsWith('n/')) {
+      const filePath = line.slice(1).split('\0')[0]
+      if (!filePath.startsWith('/')) continue
+      if (isNoisePath(filePath)) continue
+      if (filePath.length > 4096) continue
+      logFiles.add(filePath)
     }
-  } catch {
-    /* ignore */
   }
 
-  try {
-    const qc = cwd.replace(/'/g, "'\\''")
-    const { stdout: findOut } = await execAsync(
-      `find '${qc}' -maxdepth 5 \\( -name "*.log" -o -name "npm-debug.log*" -o -name "yarn-debug.log*" -o -name "vite.config.*.timestamp-*" \\) -type f -mmin -720 2>/dev/null | head -25`
-    )
-    for (const p of findOut.trim().split('\n')) {
-      if (p && p.startsWith('/') && !isNoisePath(p)) logFiles.add(p)
-    }
-  } catch {
-    /* ignore */
+  const { stdout: findOut } = await execFileSafe('find', [
+    cwd,
+    '-maxdepth',
+    '5',
+    '(',
+    '-name',
+    '*.log',
+    '-o',
+    '-name',
+    'npm-debug.log*',
+    '-o',
+    '-name',
+    'yarn-debug.log*',
+    '-o',
+    '-name',
+    'vite.config.*.timestamp-*',
+    ')',
+    '-type',
+    'f',
+    '-mmin',
+    '-720'
+  ])
+  for (const p of findOut.trim().split('\n').slice(0, 25)) {
+    if (p && p.startsWith('/') && !isNoisePath(p)) logFiles.add(p)
   }
 
   const ranked = [...logFiles].sort(
@@ -129,30 +172,29 @@ export async function getProcessLogs(pid: number): Promise<string[]> {
   )
 
   for (const logFile of ranked.slice(0, 6)) {
-    try {
-      const { stdout: tail } = await execAsync(
-        `tail -n 80 "${logFile.replace(/"/g, '\\"')}" 2>/dev/null`
-      )
-      if (tail.trim()) {
-        lines.push(`--- ${logFile} ---`)
-        lines.push(...tail.trim().split('\n'))
-      }
-    } catch {
-      /* skip */
+    // execFile: the path is passed as an argv entry, never through a shell,
+    // so hostile filenames can't inject commands.
+    const { stdout: tail } = await execFileSafe('tail', ['-n', '80', logFile])
+    if (tail.trim()) {
+      lines.push(`--- ${logFile} ---`)
+      lines.push(...tail.trim().split('\n'))
     }
   }
 
-  if (lines.length === 0) {
-    try {
-      const { stdout: syslog } = await execAsync(
-        `log show --predicate 'processID == ${pid}' --last 5m --style syslog 2>/dev/null | tail -40`
-      )
-      if (syslog.trim()) {
-        lines.push('--- System Log (last 5m) ---')
-        lines.push(...syslog.trim().split('\n'))
-      }
-    } catch {
-      /* ignore */
+  if (lines.length === 0 && process.platform === 'darwin') {
+    const { stdout: syslog } = await execFileSafe('log', [
+      'show',
+      '--predicate',
+      `processID == ${pid}`,
+      '--last',
+      '5m',
+      '--style',
+      'syslog'
+    ])
+    const tailLines = syslog.trim().split('\n').filter(Boolean).slice(-40)
+    if (tailLines.length > 0) {
+      lines.push('--- System Log (last 5m) ---')
+      lines.push(...tailLines)
     }
   }
 
@@ -167,16 +209,33 @@ export async function getProcessLogs(pid: number): Promise<string[]> {
   return lines
 }
 
-export async function killProcess(pid: number, force = false): Promise<boolean> {
+function processExists(pid: number): boolean {
   try {
-    const signal = force ? '-9' : '-15'
-    await execAsync(`kill ${signal} ${pid} 2>/dev/null`)
+    process.kill(pid, 0)
     return true
-  } catch {
-    if (!force) {
-      return killProcess(pid, true)
-    }
-    return false
+  } catch (err) {
+    // EPERM means the process exists but belongs to another user
+    return (err as NodeJS.ErrnoException).code === 'EPERM'
+  }
+}
+
+async function waitForExit(pid: number, timeoutMs: number): Promise<boolean> {
+  const deadline = Date.now() + timeoutMs
+  while (Date.now() < deadline) {
+    if (!processExists(pid)) return true
+    await new Promise((r) => setTimeout(r, 50))
+  }
+  return !processExists(pid)
+}
+
+export async function killProcess(pid: number, force = false): Promise<boolean> {
+  if (!isValidPid(pid)) return false
+  try {
+    process.kill(pid, force ? 'SIGKILL' : 'SIGTERM')
+    return true
+  } catch (err) {
+    // ESRCH: already gone — treat as success. EPERM: real failure.
+    return (err as NodeJS.ErrnoException).code === 'ESRCH'
   }
 }
 
@@ -192,21 +251,24 @@ export async function killProcesses(
 }
 
 export function openInBrowser(port: number): void {
+  if (!Number.isInteger(port) || port <= 0 || port > 65535) return
   shell.openExternal(`http://localhost:${port}`)
 }
 
 async function resolveProcessCwd(pid: number): Promise<string> {
-  try {
-    const { stdout } = await execAsync(
-      `lsof -a -p ${pid} -d cwd -Fn 2>/dev/null`
-    )
-    for (const line of stdout.trim().split('\n')) {
-      if (line.startsWith('n') && line.length > 2 && line[1] === '/') {
-        return line.slice(1)
-      }
+  if (!isValidPid(pid)) return process.env.HOME || '~'
+  const { stdout } = await execFileSafe('lsof', [
+    '-a',
+    '-p',
+    String(pid),
+    '-d',
+    'cwd',
+    '-Fn'
+  ])
+  for (const line of stdout.trim().split('\n')) {
+    if (line.startsWith('n') && line.length > 2 && line[1] === '/') {
+      return line.slice(1)
     }
-  } catch {
-    // fall through
   }
   return process.env.HOME || '~'
 }
@@ -241,62 +303,53 @@ async function identifyTerminal(pid: number): Promise<AncestorInfo> {
   const ttys = new Set<string>()
   let app: TerminalApp = 'unknown'
 
-  try {
-    const { stdout: leafTty } = await execAsync(
-      `ps -p ${pid} -o tty= 2>/dev/null`
-    )
-    addProcessTty(ttys, leafTty)
-  } catch {
-    // ignore
-  }
+  if (!isValidPid(pid)) return { app, ttys: [] }
 
-  try {
-    let current = pid
-    for (let depth = 0; depth < 30 && current > 1; depth++) {
-      const { stdout } = await execAsync(
-        `ps -p ${current} -o ppid=,tty=,command= 2>/dev/null`
-      )
-      const line = stdout.trim()
-      if (!line) break
+  const { stdout: leafTty } = await execFileSafe('ps', ['-p', String(pid), '-o', 'tty='])
+  addProcessTty(ttys, leafTty)
 
-      const ppidMatch = line.match(/^\s*(\d+)/)
-      if (!ppidMatch) break
+  let current = pid
+  for (let depth = 0; depth < 30 && current > 1; depth++) {
+    const { stdout } = await execFileSafe('ps', [
+      '-p',
+      String(current),
+      '-o',
+      'ppid=,tty=,command='
+    ])
+    const line = stdout.trim()
+    if (!line) break
 
-      const rest = line.slice(ppidMatch[0].length).trim()
-      const parts = rest.split(/\s+/)
-      const tty = parts[0]
-      const cmd = parts.slice(1).join(' ')
+    const ppidMatch = line.match(/^\s*(\d+)/)
+    if (!ppidMatch) break
 
-      if (tty && tty !== '??' && tty !== '') {
-        addProcessTty(ttys, tty)
-      }
+    const rest = line.slice(ppidMatch[0].length).trim()
+    const parts = rest.split(/\s+/)
+    const tty = parts[0]
+    const cmd = parts.slice(1).join(' ')
 
-      if (app === 'unknown') {
-        const cmdLower = cmd.toLowerCase()
-        for (const [sig, name] of TERMINAL_SIGNATURES) {
-          if (cmdLower.includes(sig.toLowerCase())) {
-            app = name
-            break
-          }
+    if (tty && tty !== '??' && tty !== '') {
+      addProcessTty(ttys, tty)
+    }
+
+    if (app === 'unknown') {
+      const cmdLower = cmd.toLowerCase()
+      for (const [sig, name] of TERMINAL_SIGNATURES) {
+        if (cmdLower.includes(sig.toLowerCase())) {
+          app = name
+          break
         }
       }
-
-      current = parseInt(ppidMatch[1], 10)
     }
-  } catch {
-    // best-effort
+
+    const next = parseInt(ppidMatch[1], 10)
+    if (isNaN(next)) break
+    current = next
   }
 
   if (app === 'unknown') {
-    try {
-      const { stdout: psEnv } = await execAsync(
-        `ps eww -p ${pid} 2>/dev/null || true`
-      )
-      if (/TERM_PROGRAM=warp/i.test(psEnv)) {
-        app = 'warp'
-      }
-    } catch {
-      /* ignore */
+    const { stdout: psEnv } = await execFileSafe('ps', ['eww', '-p', String(pid)])
+    if (/TERM_PROGRAM=warp/i.test(psEnv)) {
+      app = 'warp'
     }
   }
 
@@ -313,7 +366,7 @@ async function focusTerminalTab(ttys: string[]): Promise<boolean> {
   if (ttys.length === 0) return false
 
   try {
-    const conditions = ttys.map((t) => `tty of t is "${t}"`).join(' or ')
+    const conditions = ttys.map((t) => `tty of t is "${asQuote(t)}"`).join(' or ')
     const result = await runAppleScript(
       'tell application "Terminal"',
       '  repeat with w in windows',
@@ -340,7 +393,7 @@ async function focusITermTab(ttys: string[]): Promise<boolean> {
   if (ttys.length === 0) return false
 
   try {
-    const conditions = ttys.map((t) => `tty of s is "${t}"`).join(' or ')
+    const conditions = ttys.map((t) => `tty of s is "${asQuote(t)}"`).join(' or ')
     const result = await runAppleScript(
       'tell application "iTerm2"',
       '  repeat with w in windows',
@@ -369,7 +422,7 @@ async function focusITermTab(ttys: string[]): Promise<boolean> {
 async function focusApp(bundleName: string): Promise<boolean> {
   try {
     await runAppleScript(
-      `tell application "${bundleName}"`,
+      `tell application "${asQuote(bundleName)}"`,
       '  reopen',
       '  activate',
       'end tell'
@@ -432,7 +485,7 @@ function writeRestartShellScript(cwd: string, fullCommand: string): string {
   )
   const body = `#!/bin/bash
 set +e
-cd ${JSON.stringify(cwd)}
+cd ${shQuote(cwd)}
 ${fullCommand}
 `
   writeFileSync(sp, body, { mode: 0o700 })
@@ -456,8 +509,8 @@ async function runCommandInTerminalTab(
 ): Promise<boolean> {
   if (ttys.length === 0) return false
   const sp = writeRestartShellScript(cwd, fullCommand)
-  const conditions = ttys.map((t) => `tty of t is "${t}"`).join(' or ')
-  const esc = sp.replace(/\\/g, '\\\\').replace(/"/g, '\\"')
+  const conditions = ttys.map((t) => `tty of t is "${asQuote(t)}"`).join(' or ')
+  const esc = asQuote(sp)
   try {
     const result = await runAppleScript(
       'tell application "Terminal"',
@@ -493,8 +546,8 @@ async function runCommandInITermTab(
 ): Promise<boolean> {
   if (ttys.length === 0) return false
   const sp = writeRestartShellScript(cwd, fullCommand)
-  const conditions = ttys.map((t) => `tty of s is "${t}"`).join(' or ')
-  const esc = sp.replace(/\\/g, '\\\\').replace(/"/g, '\\"')
+  const conditions = ttys.map((t) => `tty of s is "${asQuote(t)}"`).join(' or ')
+  const esc = asQuote(sp)
   try {
     const result = await runAppleScript(
       'tell application "iTerm2"',
@@ -505,7 +558,7 @@ async function runCommandInITermTab(
       '          if miniaturized of w then set miniaturized of w to false',
       '          select t',
       '          select s',
-          `          tell s to write text ("exec /bin/bash \\"${esc}\\"" & return)`,
+      `          tell s to write text ("exec /bin/bash \\"${esc}\\"" & return)`,
       '          activate',
       '          return "ok"',
       '        end if',
@@ -530,7 +583,6 @@ async function runCommandInITermTab(
 export async function openInTerminal(pid: number, projectPath?: string): Promise<void> {
   const { app, ttys } = await identifyTerminal(pid)
   const dir = projectPath || (await resolveProcessCwd(pid))
-  const escapedDir = dir.replace(/'/g, "'\\''")
 
   switch (app) {
     case 'terminal':
@@ -543,7 +595,7 @@ export async function openInTerminal(pid: number, projectPath?: string): Promise
           'tell application "iTerm2"',
           '  tell current window',
           '    create tab with default profile',
-          `    tell current session of current tab to write text "cd '${escapedDir}'"`,
+          `    tell current session of current tab to write text "${asQuote(`cd ${shQuote(dir)}`)}"`,
           '  end tell',
           '  activate',
           'end tell'
@@ -573,23 +625,23 @@ export async function openInTerminal(pid: number, projectPath?: string): Promise
   execFileAsync('/usr/bin/osascript', [
     '-e', 'tell application "Terminal"',
     '-e', '  activate',
-    '-e', `  do script "cd '${escapedDir}'"`,
+    '-e', `  do script "${asQuote(`cd ${shQuote(dir)}`)}"`,
     '-e', 'end tell'
   ]).catch(() => {})
 }
 
 export async function openInVSCode(pid: number, projectPath?: string): Promise<void> {
-  const dir = projectPath || await resolveProcessCwd(pid)
+  const dir = projectPath || (await resolveProcessCwd(pid))
 
   try {
-    await execAsync(`open -a "Cursor" "${dir}"`)
+    await execFileAsync('open', ['-a', 'Cursor', dir])
     return
   } catch {
     // Cursor not installed
   }
 
   try {
-    await execAsync(`open -a "Visual Studio Code" "${dir}"`)
+    await execFileAsync('open', ['-a', 'Visual Studio Code', dir])
     return
   } catch {
     // VS Code not installed
@@ -600,19 +652,20 @@ export async function openInVSCode(pid: number, projectPath?: string): Promise<v
 }
 
 async function getFullCommand(pid: number): Promise<string | null> {
-  try {
-    const { stdout } = await execAsync(`ps -p ${pid} -o command= 2>/dev/null`)
-    const cmd = stdout.trim()
-    return cmd || null
-  } catch {
-    return null
-  }
+  if (!isValidPid(pid)) return null
+  const { stdout } = await execFileSafe('ps', ['-p', String(pid), '-o', 'command='])
+  const cmd = stdout.trim()
+  return cmd || null
 }
 
 export async function restartProcess(
   pid: number,
   projectPath?: string
 ): Promise<{ success: boolean; error?: string; hint?: string }> {
+  if (!isValidPid(pid)) {
+    return { success: false, error: 'Invalid process id' }
+  }
+
   const { app: termApp, ttys } = await identifyTerminal(pid)
   const fullCommand = await getFullCommand(pid)
   if (!fullCommand) {
@@ -626,7 +679,24 @@ export async function restartProcess(
     return { success: false, error: 'Failed to kill the process' }
   }
 
-  await new Promise((r) => setTimeout(r, 450))
+  // Wait for the process to actually exit instead of a fixed sleep — a
+  // slow shutdown otherwise restarts the command while the old process
+  // still holds the port.
+  const exited = await waitForExit(pid, 3000)
+  if (!exited) {
+    // Still alive after SIGTERM: escalate explicitly, then wait again.
+    try {
+      process.kill(pid, 'SIGKILL')
+    } catch {
+      /* already gone */
+    }
+    if (!(await waitForExit(pid, 2000))) {
+      return {
+        success: false,
+        error: 'Process did not exit after SIGKILL — not restarting to avoid a duplicate.'
+      }
+    }
+  }
 
   switch (termApp) {
     case 'terminal':
@@ -666,14 +736,24 @@ export async function restartProcess(
       break
   }
 
-  const escapedCwd = cwd.replace(/'/g, "'\\''")
-  const escapedCmd = fullCommand.replace(/'/g, "'\\''")
+  // Fallback: run via a temp script so the user's command never has to
+  // survive AppleScript string quoting (quotes/backslashes broke this).
+  const sp = writeRestartShellScript(cwd, fullCommand)
+  const esc = asQuote(sp)
   execFileAsync('/usr/bin/osascript', [
     '-e', 'tell application "Terminal"',
     '-e', '  activate',
-    '-e', `  do script "cd '${escapedCwd}' && ${escapedCmd}"`,
+    '-e', `  do script "exec /bin/bash \\"${esc}\\""`,
     '-e', 'end tell'
-  ]).catch(() => {})
+  ])
+    .then(() => scheduleDeleteScript(sp))
+    .catch(() => {
+      try {
+        unlinkSync(sp)
+      } catch {
+        /* ignore */
+      }
+    })
 
   return {
     success: true,

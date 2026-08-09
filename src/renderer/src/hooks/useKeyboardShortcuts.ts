@@ -112,15 +112,15 @@ export function useKeyboardShortcuts() {
         if (p) {
           queueMicrotask(() => {
             const view = useUIStore.getState().currentView
-            if (view === 'dashboard') {
-              document
-                .querySelector(`[data-port-row="${p.pid}"]`)
-                ?.focus()
-            } else if (view === 'heatmap') {
-              document
-                .querySelector(`[data-heatmap-cell="${p.pid}"]`)
-                ?.focus()
-            }
+            const selector =
+              view === 'dashboard'
+                ? `[data-port-row="${p.pid}"]`
+                : view === 'heatmap'
+                  ? `[data-heatmap-cell="${p.pid}"]`
+                  : null
+            if (!selector) return
+            const el = document.querySelector(selector)
+            if (el instanceof HTMLElement) el.focus()
           })
         }
         return

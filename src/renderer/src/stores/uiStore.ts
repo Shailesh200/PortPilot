@@ -74,7 +74,11 @@ export const useUIStore = create<UIState>((set, get) => ({
   addToast: (toast) => {
     const id = crypto.randomUUID()
     set((s) => ({ toasts: [...s.toasts, { ...toast, id }] }))
-    setTimeout(() => get().removeToast(id), toast.duration || 4000)
+    // duration === 0 means sticky (manual dismiss only)
+    const ms = toast.duration ?? 4000
+    if (ms > 0) {
+      setTimeout(() => get().removeToast(id), ms)
+    }
   },
 
   removeToast: (id) =>

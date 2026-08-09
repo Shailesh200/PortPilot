@@ -1,4 +1,5 @@
 import { usePortStore } from '../stores/portStore'
+import { useSettingsStore } from '../stores/settingsStore'
 import { PortTable } from './PortTable'
 import { Activity, Cpu, MemoryStick, Network, RefreshCw, Search } from 'lucide-react'
 import { clsx } from 'clsx'
@@ -38,9 +39,12 @@ export function Dashboard() {
   const setSearchQuery = usePortStore((s) => s.setSearchQuery)
   const fetchPorts = usePortStore((s) => s.fetchPorts)
   const isLoading = usePortStore((s) => s.isLoading)
+  const cpuThreshold = useSettingsStore((s) => s.cpuThreshold)
+  const memoryThreshold = useSettingsStore((s) => s.memoryThreshold)
 
-  const highCpu = filteredPorts.filter((p) => p.cpu > 50).length
-  const highMem = filteredPorts.filter((p) => p.memory > 50).length
+  const uniqueProcesses = new Set(filteredPorts.map((p) => p.pid)).size
+  const highCpu = filteredPorts.filter((p) => p.cpu > cpuThreshold).length
+  const highMem = filteredPorts.filter((p) => p.memory > memoryThreshold).length
 
   return (
     <div className="h-full flex flex-col overflow-hidden">
@@ -79,9 +83,10 @@ export function Dashboard() {
         />
         <StatsCard
           icon={Activity}
-          label="Listening"
-          value={filteredPorts.length}
+          label="Processes"
+          value={uniqueProcesses}
           color="bg-success-muted text-success"
+          subtext="Unique PIDs listening"
         />
         <StatsCard
           icon={Cpu}
@@ -92,7 +97,11 @@ export function Dashboard() {
               ? 'bg-warning-muted text-warning'
               : 'bg-success-muted text-success'
           }
-          subtext={highCpu > 0 ? 'Processes using >50% CPU' : 'All normal'}
+          subtext={
+            highCpu > 0
+              ? `Processes using >${cpuThreshold}% CPU`
+              : 'All normal'
+          }
         />
         <StatsCard
           icon={MemoryStick}
@@ -103,7 +112,11 @@ export function Dashboard() {
               ? 'bg-danger-muted text-danger'
               : 'bg-success-muted text-success'
           }
-          subtext={highMem > 0 ? 'Processes using >50% memory' : 'All normal'}
+          subtext={
+            highMem > 0
+              ? `Processes using >${memoryThreshold}% memory`
+              : 'All normal'
+          }
         />
       </div>
 

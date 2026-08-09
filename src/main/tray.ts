@@ -1,4 +1,4 @@
-import { Tray, Menu, nativeImage, BrowserWindow, app } from 'electron'
+import { Tray, Menu, nativeImage, app, dialog } from 'electron'
 import { join } from 'path'
 import {
   killProcess,
@@ -6,19 +6,40 @@ import {
   openInTerminal,
   restartProcess
 } from './services/process-manager'
-import { getLastPorts, onPortsChanged, notifyProfilesChanged } from './ipc'
+import {
+  getLastPorts,
+  onPortsChanged,
+  notifyProfilesChanged,
+  getSafetySettings,
+  getRegisteredShortcut
+} from './ipc'
 import { loadProfilesState, addPortToProfileFile } from './profiles-persistence'
-import type { PortInfo } from '../shared/types'
+import type { PortInfo, Profile } from '../shared/types'
+
+export interface TrayHandlers {
+  showWindow: () => void
+  hideWindow: () => void
+  isWindowVisible: () => boolean
+}
 
 let tray: Tray | null = null
 let removeListener: (() => void) | null = null
+let handlers: TrayHandlers | null = null
+let lastMenuSignature = ''
 
 function getIconPath(): string {
+  // extraResources copies resources/ next to the asar in packaged builds;
+  // __dirname-relative paths only work in dev.
+  if (app.isPackaged) {
+    return join(process.resourcesPath, 'resources/iconTemplate.png')
+  }
   return join(__dirname, '../../resources/iconTemplate.png')
 }
 
-function addToProfileMenuItem(port: PortInfo): Electron.MenuItemConstructorOptions {
-  const { profiles } = loadProfilesState()
+function addToProfileMenuItem(
+  port: PortInfo,
+  profiles: Profile[]
+): Electron.MenuItemConstructorOptions {
   if (profiles.length === 0) {
     return { label: 'Add to profile', enabled: false }
   }
@@ -34,10 +55,30 @@ function addToProfileMenuItem(port: PortInfo): Electron.MenuItemConstructorOptio
   }
 }
 
+function isProtected(port: PortInfo): boolean {
+  return getSafetySettings().protectSystemPorts && port.isCritical
+}
+
+async function confirmTrayAction(action: string, detail: string): Promise<boolean> {
+  if (!getSafetySettings().confirmDestructive) return true
+  const { response } = await dialog.showMessageBox({
+    type: 'warning',
+    buttons: ['Cancel', action],
+    defaultId: 0,
+    cancelId: 0,
+    title: action,
+    message: action,
+    detail
+  })
+  return response === 1
+}
+
 function portActionsSubmenu(
   port: PortInfo,
+  profiles: Profile[],
   opts: { includeStats?: boolean } = {}
 ): Electron.MenuItemConstructorOptions[] {
+  const protectedPort = isProtected(port)
   const items: Electron.MenuItemConstructorOptions[] = [
     {
       label: `Open in Browser`,
@@ -50,18 +91,30 @@ function portActionsSubmenu(
       }
     },
     {
-      label: `Restart Port`,
+      label: protectedPort ? 'Restart Port (protected)' : 'Restart Port',
+      enabled: !protectedPort,
       click: async () => {
+        const ok = await confirmTrayAction(
+          'Restart Port',
+          `Restart :${port.port} (${port.command}, PID ${port.pid})?`
+        )
+        if (!ok) return
         await restartProcess(port.pid, port.projectPath)
       }
     },
     {
-      label: `Kill Process`,
+      label: protectedPort ? 'Kill Process (protected)' : 'Kill Process',
+      enabled: !protectedPort,
       click: async () => {
+        const ok = await confirmTrayAction(
+          'Kill Process',
+          `Kill :${port.port} (${port.command}, PID ${port.pid})?`
+        )
+        if (!ok) return
         await killProcess(port.pid)
       }
     },
-    addToProfileMenuItem(port)
+    addToProfileMenuItem(port, profiles)
   ]
   if (opts.includeStats) {
     items.push(
@@ -80,15 +133,16 @@ function portActionsSubmenu(
 }
 
 function buildContextMenu(
-  mainWindow: BrowserWindow | null,
-  ports: PortInfo[]
+  ports: PortInfo[],
+  profiles: Profile[],
+  openAtLogin: boolean
 ): Menu {
   const portItems: Electron.MenuItemConstructorOptions[] = ports
     .slice(0, 12)
     .map((port) => ({
       label: `:${port.port}  ${port.projectName || port.command}`,
       sublabel: `PID ${port.pid} — CPU ${port.cpu.toFixed(1)}%`,
-      submenu: portActionsSubmenu(port, { includeStats: true })
+      submenu: portActionsSubmenu(port, profiles, { includeStats: true })
     }))
 
   const hasHighCpu = ports.some((p) => p.cpu > 50)
@@ -122,19 +176,16 @@ function buildContextMenu(
     { type: 'separator' as const },
     {
       label: 'Open PortPilot',
-      accelerator: 'CommandOrControl+Shift+P',
+      accelerator: getRegisteredShortcut() || undefined,
       click: () => {
-        if (mainWindow) {
-          mainWindow.show()
-          mainWindow.focus()
-        }
+        handlers?.showWindow()
       }
     },
     { type: 'separator' as const },
     {
       label: 'Start at Login',
       type: 'checkbox',
-      checked: app.getLoginItemSettings().openAtLogin,
+      checked: openAtLogin,
       click: (menuItem) => {
         app.setLoginItemSettings({ openAtLogin: menuItem.checked })
       }
@@ -144,13 +195,14 @@ function buildContextMenu(
       label: 'Quit PortPilot',
       accelerator: 'CommandOrControl+Q',
       click: () => {
-        app.exit(0)
+        // app.exit() skips before-quit handlers (window state, polling cleanup)
+        app.quit()
       }
     }
   ])
 }
 
-function syncDockMenu(mainWindow: BrowserWindow | null, ports: PortInfo[]): void {
+function syncDockMenu(ports: PortInfo[], profiles: Profile[]): void {
   if (process.platform !== 'darwin') return
   try {
     const dock = app.dock
@@ -160,7 +212,7 @@ function syncDockMenu(mainWindow: BrowserWindow | null, ports: PortInfo[]): void
       .slice(0, 12)
       .map((port) => ({
         label: `:${port.port}  ${port.projectName || port.command}`,
-        submenu: portActionsSubmenu(port, { includeStats: false })
+        submenu: portActionsSubmenu(port, profiles, { includeStats: false })
       }))
 
     dock.setMenu(
@@ -168,10 +220,7 @@ function syncDockMenu(mainWindow: BrowserWindow | null, ports: PortInfo[]): void
         {
           label: 'Show PortPilot',
           click: () => {
-            if (mainWindow) {
-              mainWindow.show()
-              mainWindow.focus()
-            }
+            handlers?.showWindow()
           }
         },
         { type: 'separator' as const },
@@ -193,14 +242,53 @@ function syncDockMenu(mainWindow: BrowserWindow | null, ports: PortInfo[]): void
   }
 }
 
-function updateTray(mainWindow: BrowserWindow | null, ports: PortInfo[]): void {
-  syncDockMenu(mainWindow, ports)
+function menuSignature(
+  ports: PortInfo[],
+  profiles: Profile[],
+  openAtLogin: boolean
+): string {
+  const portSig = ports
+    .slice(0, 12)
+    .map(
+      (p) =>
+        `${p.port}:${p.pid}:${p.projectName || p.command}:${Math.round(p.cpu / 10)}:${Math.round(p.memory / 10)}`
+    )
+    .join('|')
+  const profileSig = profiles
+    .map((p) => `${p.id}:${p.icon}:${p.name}:${p.favoritePorts.join(',')}`)
+    .join('|')
+  const highCpuCount = ports.filter((p) => p.cpu > 50).length
+  const hasWarning = ports.some((p) => p.cpu > 80)
+  const safety = getSafetySettings()
+  return [
+    ports.length,
+    highCpuCount,
+    hasWarning,
+    portSig,
+    profileSig,
+    openAtLogin,
+    safety.protectSystemPorts,
+    getRegisteredShortcut() || ''
+  ].join('#')
+}
+
+function updateTray(ports: PortInfo[], force = false): void {
+  const { profiles } = loadProfilesState()
+  const openAtLogin = app.getLoginItemSettings().openAtLogin
+  const signature = menuSignature(ports, profiles, openAtLogin)
+
+  // setContextMenu closes the menu if the user has it open (macOS limitation),
+  // so rebuilding on every poll yanks the menu away mid-click. Only rebuild
+  // when something visible actually changed.
+  if (!force && signature === lastMenuSignature) return
+  lastMenuSignature = signature
+
+  syncDockMenu(ports, profiles)
 
   if (!tray || tray.isDestroyed()) return
 
   try {
-    const menu = buildContextMenu(mainWindow, ports)
-    tray.setContextMenu(menu)
+    tray.setContextMenu(buildContextMenu(ports, profiles, openAtLogin))
 
     const title = ports.length > 0 ? `${ports.length}` : ''
     tray.setTitle(title, { fontType: 'monospacedDigit' })
@@ -216,7 +304,9 @@ function updateTray(mainWindow: BrowserWindow | null, ports: PortInfo[]): void {
   }
 }
 
-export function createTray(mainWindow: BrowserWindow | null): Tray {
+export function createTray(trayHandlers: TrayHandlers): Tray {
+  handlers = trayHandlers
+
   const iconPath = getIconPath()
   const icon = nativeImage.createFromPath(iconPath)
   icon.setTemplateImage(true)
@@ -225,20 +315,19 @@ export function createTray(mainWindow: BrowserWindow | null): Tray {
   tray.setToolTip('PortPilot')
 
   tray.on('click', () => {
-    if (mainWindow) {
-      if (mainWindow.isVisible()) {
-        mainWindow.hide()
-      } else {
-        mainWindow.show()
-        mainWindow.focus()
-      }
-    }
+    // On macOS, clicking the tray icon opens the context menu — and Electron
+    // still emits 'click' on mouseDown even when a menu is attached. Toggling
+    // the window here would pop the window open alongside the menu.
+    if (process.platform === 'darwin') return
+    if (!handlers) return
+    if (handlers.isWindowVisible()) handlers.hideWindow()
+    else handlers.showWindow()
   })
 
-  updateTray(mainWindow, getLastPorts())
+  updateTray(getLastPorts(), true)
 
   removeListener = onPortsChanged((ports) => {
-    updateTray(mainWindow, ports)
+    updateTray(ports)
   })
 
   return tray
@@ -253,4 +342,6 @@ export function destroyTray(): void {
     tray.destroy()
     tray = null
   }
+  handlers = null
+  lastMenuSignature = ''
 }

@@ -9,9 +9,16 @@ import {
 import { readFileSync, writeFileSync } from 'fs'
 import { join } from 'path'
 import { is } from '@electron-toolkit/utils'
-import { registerIpcHandlers, startPortPolling, stopPortPolling, setShortcutCallback } from './ipc'
+import {
+  registerIpcHandlers,
+  startPortPolling,
+  stopPortPolling,
+  setShortcutCallback,
+  updateGlobalShortcut
+} from './ipc'
 import { createTray, destroyTray } from './tray'
 import { initAutoUpdater } from './updater'
+import { DEFAULT_SETTINGS } from '../shared/defaults'
 import log from './logger'
 
 crashReporter.start({
@@ -69,6 +76,25 @@ function saveWindowState(win: BrowserWindow): void {
   }
 }
 
+function showMainWindow(): void {
+  if (!mainWindow || mainWindow.isDestroyed()) return
+  const { webContents } = mainWindow
+  if (webContents.isCrashed()) {
+    webContents.once('did-finish-load', () => showMainWindow())
+    webContents.reload()
+    return
+  }
+  if (webContents.isLoading()) {
+    // Forcing a show mid-load paints only the background color — the
+    // "black window" symptom. Wait for the load to finish instead.
+    webContents.once('did-finish-load', () => showMainWindow())
+    return
+  }
+  if (mainWindow.isMinimized()) mainWindow.restore()
+  mainWindow.show()
+  mainWindow.focus()
+}
+
 function createWindow(): void {
   const windowState = loadWindowState()
 
@@ -84,12 +110,37 @@ function createWindow(): void {
       preload: join(__dirname, '../preload/index.js'),
       sandbox: false,
       contextIsolation: true,
-      nodeIntegration: false
+      nodeIntegration: false,
+      // Keep the compositor alive while hidden; otherwise a long-hidden
+      // window can repaint as a black screen when shown again on macOS.
+      backgroundThrottling: false
     }
   })
 
+  let hasAutoShown = false
   mainWindow.on('ready-to-show', () => {
-    mainWindow?.show()
+    // Auto-show only on the first load. After a crash-triggered reload the
+    // window stays hidden until the user explicitly summons it.
+    if (!hasAutoShown) {
+      hasAutoShown = true
+      mainWindow?.show()
+    }
+  })
+
+  mainWindow.webContents.on('render-process-gone', (_event, details) => {
+    log.error('Renderer process gone:', details.reason)
+    // Reload so a crash while hidden doesn't surface as a black window later.
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.reload()
+    }
+  })
+
+  mainWindow.webContents.on('unresponsive', () => {
+    log.warn('Renderer became unresponsive')
+  })
+
+  mainWindow.on('closed', () => {
+    mainWindow = null
   })
 
   mainWindow.on('close', (e) => {
@@ -120,53 +171,73 @@ function createWindow(): void {
 
 function registerGlobalShortcuts(): void {
   const callback = () => {
-    if (mainWindow) {
-      if (mainWindow.isMinimized()) mainWindow.restore()
-      if (!mainWindow.isVisible()) mainWindow.show()
-      mainWindow.focus()
-      mainWindow.webContents.send('focus-search')
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      showMainWindow()
+      const { webContents } = mainWindow
+      if (!webContents.isLoading() && !webContents.isCrashed()) {
+        webContents.send('focus-search')
+      }
     }
   }
   setShortcutCallback(callback)
-  globalShortcut.register('CommandOrControl+Shift+P', callback)
+  if (!updateGlobalShortcut(DEFAULT_SETTINGS.globalShortcut)) {
+    log.warn(`Could not register default shortcut: ${DEFAULT_SETTINGS.globalShortcut}`)
+  }
 }
 
-app.whenReady().then(() => {
-  registerIpcHandlers()
-  createWindow()
-  registerGlobalShortcuts()
-  createTray(mainWindow)
+// A second launch (Spotlight, `open -a`, dock) should surface the existing
+// window, not spawn a duplicate app fighting over the same tray + shortcut.
+const gotSingleInstanceLock = app.requestSingleInstanceLock()
+if (!gotSingleInstanceLock) {
+  app.quit()
+} else {
+  app.on('second-instance', () => {
+    showMainWindow()
+  })
 
-  app.on('activate', () => {
-    if (mainWindow) {
-      mainWindow.show()
-      mainWindow.focus()
-    } else {
-      createWindow()
+  app.whenReady().then(() => {
+    registerIpcHandlers()
+    createWindow()
+    registerGlobalShortcuts()
+    createTray({
+      showWindow: showMainWindow,
+      hideWindow: () => {
+        if (mainWindow && !mainWindow.isDestroyed()) mainWindow.hide()
+      },
+      isWindowVisible: () =>
+        Boolean(mainWindow && !mainWindow.isDestroyed() && mainWindow.isVisible())
+    })
+
+    app.on('activate', () => {
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        showMainWindow()
+      } else {
+        createWindow()
+      }
+    })
+
+    log.info('PortPilot started')
+  }).catch((err) => {
+    log.error('Failed to start:', err)
+  })
+
+  app.on('window-all-closed', () => {
+    if (process.platform !== 'darwin') {
+      stopPortPolling()
+      globalShortcut.unregisterAll()
+      destroyTray()
+      app.quit()
     }
   })
 
-  log.info('PortPilot started')
-}).catch((err) => {
-  log.error('Failed to start:', err)
-})
-
-app.on('window-all-closed', () => {
-  if (process.platform !== 'darwin') {
+  app.on('before-quit', () => {
+    if (mainWindow) {
+      saveWindowState(mainWindow)
+      mainWindow.removeAllListeners('close')
+      mainWindow.close()
+    }
     stopPortPolling()
     globalShortcut.unregisterAll()
     destroyTray()
-    app.quit()
-  }
-})
-
-app.on('before-quit', () => {
-  if (mainWindow) {
-    saveWindowState(mainWindow)
-    mainWindow.removeAllListeners('close')
-    mainWindow.close()
-  }
-  stopPortPolling()
-  globalShortcut.unregisterAll()
-  destroyTray()
-})
+  })
+}

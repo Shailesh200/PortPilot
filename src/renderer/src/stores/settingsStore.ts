@@ -1,41 +1,9 @@
 import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
 import type { AppSettings, Profile } from '../../../shared/types'
+import { DEFAULT_PROFILES, DEFAULT_SETTINGS } from '../../../shared/defaults'
 
-const DEFAULT_SETTINGS: AppSettings = {
-  globalShortcut: 'CommandOrControl+Shift+P',
-  refreshInterval: 3000,
-  darkMode: true,
-  autoOpenBrowser: false,
-  autoFocusTerminal: true,
-  confirmDestructive: true,
-  highlightCritical: true,
-  protectSystemPorts: true,
-  cpuThreshold: 80,
-  memoryThreshold: 80,
-  notifyPortChange: true,
-  notifyHighCpu: true,
-  notifyCrash: true
-}
-
-export const DEFAULT_PROFILES: Profile[] = [
-  {
-    id: 'frontend',
-    name: 'Frontend',
-    icon: '🎨',
-    favoritePorts: [5173, 3000, 4321, 5174],
-    filters: {},
-    autoActions: {}
-  },
-  {
-    id: 'backend',
-    name: 'Backend',
-    icon: '⚙️',
-    favoritePorts: [8000, 5000, 4000, 5432],
-    filters: {},
-    autoActions: {}
-  }
-]
+export { DEFAULT_PROFILES }
 
 function saveProfilesToDisk(profiles: Profile[], activeProfileId: string | null): void {
   if (typeof window !== 'undefined' && window.api?.saveProfiles) {
@@ -61,7 +29,7 @@ interface SettingsState extends AppSettings {
 
 export const useSettingsStore = create<SettingsState>()(
   persist(
-    (set, get) => ({
+    (set) => ({
       ...DEFAULT_SETTINGS,
       profiles: DEFAULT_PROFILES,
       activeProfileId: null,

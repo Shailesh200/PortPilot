@@ -1,10 +1,28 @@
-import { exec } from 'child_process'
+import { execFile } from 'child_process'
 import { promisify } from 'util'
+import { readlinkSync } from 'fs'
 import type { PortInfo } from '../../shared/types'
 
-const execAsync = promisify(exec)
+const execFileAsync = promisify(execFile)
+
+/** execFile that never rejects — non-zero exits and missing binaries yield empty stdout. */
+async function execFileSafe(
+  cmd: string,
+  args: string[]
+): Promise<{ stdout: string; stderr: string }> {
+  try {
+    return await execFileAsync(cmd, args)
+  } catch {
+    return { stdout: '', stderr: '' }
+  }
+}
 
 const CRITICAL_PORTS = new Set([22, 53, 80, 443, 631, 5432, 3306, 6379, 27017])
+
+/** Single definition across platforms: well-known service ports + system range. */
+function isCriticalPort(port: number): boolean {
+  return port < 1024 || CRITICAL_PORTS.has(port)
+}
 
 export async function scanPorts(): Promise<PortInfo[]> {
   switch (process.platform) {
@@ -19,9 +37,12 @@ export async function scanPorts(): Promise<PortInfo[]> {
 
 async function scanPortsDarwin(): Promise<PortInfo[]> {
   try {
-    const { stdout } = await execAsync(
-      'lsof -iTCP -sTCP:LISTEN -P -n 2>/dev/null || true'
-    )
+    const { stdout } = await execFileSafe('lsof', [
+      '-iTCP',
+      '-sTCP:LISTEN',
+      '-P',
+      '-n'
+    ])
     const lines = stdout.trim().split('\n')
     if (lines.length <= 1) return []
 
@@ -59,7 +80,7 @@ async function scanPortsDarwin(): Promise<PortInfo[]> {
           memoryRSS: 0,
           tags: [],
           isSelected: false,
-          isCritical: CRITICAL_PORTS.has(port)
+          isCritical: isCriticalPort(port)
         })
       }
     }
@@ -78,13 +99,58 @@ async function scanPortsDarwin(): Promise<PortInfo[]> {
   }
 }
 
+interface WindowsProcInfo {
+  name: string
+  memoryKB: number
+  cpu: number
+}
+
+/**
+ * One PowerShell invocation for ALL processes — the previous version ran
+ * tasklist + wmic per port (N+1 spawns), and wmic is removed from Windows 11.
+ */
+async function getWindowsProcessMap(): Promise<Map<number, WindowsProcInfo>> {
+  const map = new Map<number, WindowsProcInfo>()
+  const { stdout } = await execFileSafe('powershell', [
+    '-NoProfile',
+    '-NonInteractive',
+    '-Command',
+    '$p = Get-CimInstance Win32_Process | Select-Object ProcessId, Name, WorkingSetSize;' +
+      '$c = Get-CimInstance Win32_PerfFormattedData_PerfProc_Process | Select-Object IDProcess, PercentProcessorTime;' +
+      '@{ proc = @($p); cpu = @($c) } | ConvertTo-Json -Compress -Depth 3'
+  ])
+  if (!stdout.trim()) return map
+
+  try {
+    const parsed = JSON.parse(stdout) as {
+      proc?: { ProcessId: number; Name: string; WorkingSetSize: number }[]
+      cpu?: { IDProcess: number; PercentProcessorTime: number }[]
+    }
+    const cpuByPid = new Map<number, number>()
+    for (const c of parsed.cpu || []) {
+      cpuByPid.set(c.IDProcess, c.PercentProcessorTime)
+    }
+    for (const p of parsed.proc || []) {
+      map.set(p.ProcessId, {
+        name: p.Name || 'unknown',
+        memoryKB: Math.round((p.WorkingSetSize || 0) / 1024),
+        cpu: cpuByPid.get(p.ProcessId) || 0
+      })
+    }
+  } catch {
+    /* malformed JSON — return what we have */
+  }
+  return map
+}
+
 async function scanPortsWindows(): Promise<PortInfo[]> {
   try {
-    const { stdout } = await execAsync('netstat -ano -p tcp | findstr LISTENING')
-    const ports: PortInfo[] = []
+    const { stdout } = await execFileSafe('netstat', ['-ano', '-p', 'tcp'])
+    const entries: { pid: number; port: number; address: string }[] = []
     const seen = new Set<string>()
 
     for (const line of stdout.trim().split('\n')) {
+      if (!line.includes('LISTENING')) continue
       const parts = line.trim().split(/\s+/)
       if (parts.length < 5) continue
 
@@ -100,57 +166,35 @@ async function scanPortsWindows(): Promise<PortInfo[]> {
       const key = `${pid}:${port}`
       if (seen.has(key)) continue
       seen.add(key)
-
-      let command = 'unknown'
-      let user = 'unknown'
-      let cpu = 0
-      let memory = 0
-      let memoryRSS = 0
-
-      try {
-        const { stdout: tasklist } = await execAsync(
-          `tasklist /FI "PID eq ${pid}" /FO CSV /NH 2>nul`
-        )
-        const csvParts = tasklist.trim().split(',')
-        if (csvParts.length > 0) {
-          command = csvParts[0].replace(/"/g, '')
-        }
-        if (csvParts.length > 4) {
-          const memStr = csvParts[4].replace(/"/g, '').replace(/[^0-9]/g, '')
-          memoryRSS = parseInt(memStr, 10) || 0
-        }
-      } catch {}
-
-      try {
-        const { stdout: wmicOut } = await execAsync(
-          `wmic path win32_perfformatteddata_perfproc_process where "IDProcess=${pid}" get PercentProcessorTime /value 2>nul`
-        )
-        const cpuMatch = wmicOut.match(/PercentProcessorTime=(\d+)/)
-        if (cpuMatch) cpu = parseInt(cpuMatch[1], 10)
-      } catch {}
-
-      const isCritical = port < 1024
-
-      ports.push({
-        port,
-        pid,
-        command,
-        projectName: command,
-        projectPath: '',
-        user,
-        protocol: 'TCP',
-        address,
-        state: 'LISTEN',
-        cpu,
-        memory,
-        memoryRSS,
-        tags: [],
-        isSelected: false,
-        isCritical
-      })
+      entries.push({ pid, port, address })
     }
 
-    return ports
+    if (entries.length === 0) return []
+
+    const procMap = await getWindowsProcessMap()
+
+    return entries
+      .map(({ pid, port, address }) => {
+        const info = procMap.get(pid)
+        return {
+          port,
+          pid,
+          command: info?.name || 'unknown',
+          projectName: info?.name || 'unknown',
+          projectPath: '',
+          user: 'unknown',
+          protocol: 'TCP' as const,
+          address,
+          state: 'LISTEN',
+          cpu: info?.cpu || 0,
+          memory: 0,
+          memoryRSS: info?.memoryKB || 0,
+          tags: [],
+          isSelected: false,
+          isCritical: isCriticalPort(port)
+        }
+      })
+      .sort((a, b) => a.port - b.port)
   } catch {
     return []
   }
@@ -158,8 +202,8 @@ async function scanPortsWindows(): Promise<PortInfo[]> {
 
 async function scanPortsLinux(): Promise<PortInfo[]> {
   try {
-    const { stdout } = await execAsync('ss -tlnp 2>/dev/null')
-    const ports: PortInfo[] = []
+    const { stdout } = await execFileSafe('ss', ['-tlnp'])
+    const entries: { pid: number; port: number; address: string }[] = []
     const seen = new Set<string>()
 
     for (const line of stdout.trim().split('\n').slice(1)) {
@@ -179,63 +223,74 @@ async function scanPortsLinux(): Promise<PortInfo[]> {
       const key = `${pid}:${port}`
       if (seen.has(key)) continue
       seen.add(key)
+      entries.push({ pid, port, address })
+    }
 
-      let command = 'unknown'
-      let user = 'unknown'
-      let cpu = 0
-      let memory = 0
-      let memoryRSS = 0
+    if (entries.length === 0) return []
 
-      try {
-        const { stdout: psOut } = await execAsync(
-          `ps -p ${pid} -o comm=,%cpu=,%mem=,rss=,user= 2>/dev/null`
-        )
-        const psParts = psOut.trim().split(/\s+/)
-        if (psParts.length >= 4) {
-          command = psParts[0]
-          cpu = parseFloat(psParts[1]) || 0
-          memory = parseFloat(psParts[2]) || 0
-          memoryRSS = parseInt(psParts[3], 10) || 0
-        }
-        if (psParts.length >= 5) {
-          user = psParts[4]
-        }
-      } catch {}
-
-      let projectName = command
-      let projectPath = ''
-      try {
-        const { stdout: cwdOut } = await execAsync(
-          `readlink /proc/${pid}/cwd 2>/dev/null`
-        )
-        if (cwdOut.trim()) {
-          projectPath = cwdOut.trim()
-          projectName = projectPath.split('/').pop() || command
-        }
-      } catch {}
-
-      const isCritical = port < 1024
-
-      ports.push({
-        port,
-        pid,
-        command,
-        projectName,
-        projectPath,
-        user,
-        protocol: 'TCP',
-        address,
-        state: 'LISTEN',
-        cpu,
-        memory,
-        memoryRSS,
-        tags: [],
-        isSelected: false,
-        isCritical
+    // One ps call for every pid instead of one per port.
+    const pids = [...new Set(entries.map((e) => e.pid))]
+    const { stdout: psOut } = await execFileSafe('ps', [
+      '-p',
+      pids.join(','),
+      '-o',
+      'pid=,comm=,%cpu=,%mem=,rss=,user='
+    ])
+    const procMap = new Map<
+      number,
+      { command: string; cpu: number; memory: number; memoryRSS: number; user: string }
+    >()
+    for (const line of psOut.trim().split('\n')) {
+      const parts = line.trim().split(/\s+/)
+      if (parts.length < 6) continue
+      const pid = parseInt(parts[0], 10)
+      if (isNaN(pid)) continue
+      procMap.set(pid, {
+        command: parts[1],
+        cpu: parseFloat(parts[2]) || 0,
+        memory: parseFloat(parts[3]) || 0,
+        memoryRSS: parseInt(parts[4], 10) || 0,
+        user: parts[5]
       })
     }
 
-    return ports
+    return entries
+      .map(({ pid, port, address }) => {
+        const info = procMap.get(pid)
+        const command = info?.command || 'unknown'
+
+        // readlinkSync on /proc — no subprocess spawn per pid.
+        let projectPath = ''
+        let projectName = command
+        try {
+          const cwd = readlinkSync(`/proc/${pid}/cwd`)
+          if (cwd && cwd !== '/') {
+            projectPath = cwd
+            projectName = extractProjectName(cwd, command)
+          }
+        } catch {
+          /* process gone or no permission */
+        }
+
+        return {
+          port,
+          pid,
+          command,
+          projectName,
+          projectPath,
+          user: info?.user || 'unknown',
+          protocol: 'TCP' as const,
+          address,
+          state: 'LISTEN',
+          cpu: info?.cpu || 0,
+          memory: info?.memory || 0,
+          memoryRSS: info?.memoryRSS || 0,
+          tags: [],
+          isSelected: false,
+          isCritical: isCriticalPort(port)
+        }
+      })
+      .sort((a, b) => a.port - b.port)
   } catch {
     return []
   }
@@ -246,9 +301,12 @@ async function enrichWithResourceUsage(ports: PortInfo[]): Promise<void> {
   if (pids.length === 0) return
 
   try {
-    const { stdout } = await execAsync(
-      `ps -p ${pids.join(',')} -o pid=,%cpu=,%mem=,rss= 2>/dev/null || true`
-    )
+    const { stdout } = await execFileSafe('ps', [
+      '-p',
+      pids.join(','),
+      '-o',
+      'pid=,%cpu=,%mem=,rss='
+    ])
 
     const pidStats = new Map<number, { cpu: number; mem: number; rss: number }>()
 
@@ -281,9 +339,15 @@ async function enrichWithProjectNames(ports: PortInfo[]): Promise<void> {
   if (pids.length === 0) return
 
   try {
-    const { stdout } = await execAsync(
-      `lsof -a -p ${pids.join(',')} -d cwd -Fp -Fn 2>/dev/null || true`
-    )
+    const { stdout } = await execFileSafe('lsof', [
+      '-a',
+      '-p',
+      pids.join(','),
+      '-d',
+      'cwd',
+      '-Fp',
+      '-Fn'
+    ])
 
     const pidCwdMap = new Map<number, string>()
     let currentPid = 0

@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useMemo, useCallback } from 'react'
 import { usePortStore } from '../stores/portStore'
 import { useUIStore } from '../stores/uiStore'
+import { useSettingsStore } from '../stores/settingsStore'
 import {
   Search,
   Trash2,
@@ -17,6 +18,7 @@ import {
 } from 'lucide-react'
 import { clsx } from 'clsx'
 import Fuse from 'fuse.js'
+import type { PortInfo } from '../../../shared/types'
 
 interface CommandItem {
   id: string
@@ -43,6 +45,51 @@ export function CommandPalette() {
   const closeCommandPalette = useUIStore((s) => s.closeCommandPalette)
   const setView = useUIStore((s) => s.setView)
   const addToast = useUIStore((s) => s.addToast)
+  const showConfirm = useUIStore((s) => s.showConfirm)
+  const confirmDestructive = useSettingsStore((s) => s.confirmDestructive)
+  const protectSystemPorts = useSettingsStore((s) => s.protectSystemPorts)
+
+  const runKill = useCallback(
+    (port: PortInfo) => {
+      if (protectSystemPorts && port.isCritical) {
+        addToast({
+          type: 'warning',
+          title: 'Protected Port',
+          message: `Port ${port.port} is protected.`
+        })
+        closeCommandPalette()
+        return
+      }
+      const doKill = async () => {
+        const success = await killPort(port.pid)
+        addToast({
+          type: success ? 'success' : 'error',
+          title: success ? 'Process Killed' : 'Failed',
+          message: `Port ${port.port}`
+        })
+        closeCommandPalette()
+      }
+      if (confirmDestructive) {
+        closeCommandPalette()
+        showConfirm({
+          title: 'Kill Process',
+          message: `Kill port ${port.port} (${port.command})?`,
+          confirmLabel: 'Kill',
+          onConfirm: doKill
+        })
+      } else {
+        void doKill()
+      }
+    },
+    [
+      protectSystemPorts,
+      confirmDestructive,
+      killPort,
+      addToast,
+      closeCommandPalette,
+      showConfirm
+    ]
+  )
 
   const commands = useMemo<CommandItem[]>(() => {
     const nlpItems: CommandItem[] = []
@@ -69,15 +116,7 @@ export function CommandPalette() {
           description: `${p.command} (PID ${p.pid})`,
           icon: Skull,
           category: 'natural',
-          handler: async () => {
-            const success = await killPort(p.pid)
-            addToast({
-              type: success ? 'success' : 'error',
-              title: success ? 'Killed' : 'Failed',
-              message: `Port ${num}`
-            })
-            closeCommandPalette()
-          }
+          handler: () => runKill(p)
         })
       }
       if (showStats) {
@@ -162,15 +201,7 @@ export function CommandPalette() {
           description: `${port.command} (PID ${port.pid})`,
           icon: Trash2,
           category: 'action',
-          handler: async () => {
-            const success = await killPort(port.pid)
-            addToast({
-              type: success ? 'success' : 'error',
-              title: success ? 'Process Killed' : 'Failed',
-              message: `Port ${port.port}`
-            })
-            closeCommandPalette()
-          }
+          handler: () => runKill(port)
         },
         {
           id: `open-${port.port}-${port.pid}`,
@@ -190,7 +221,7 @@ export function CommandPalette() {
           icon: Terminal,
           category: 'action',
           handler: () => {
-            openInTerminal(port.pid)
+            openInTerminal(port.pid, port.projectPath)
             closeCommandPalette()
           }
         },
@@ -201,7 +232,7 @@ export function CommandPalette() {
           icon: Code2,
           category: 'action',
           handler: () => {
-            openInVSCode(port.pid)
+            openInVSCode(port.pid, port.projectPath)
             closeCommandPalette()
           }
         }
@@ -213,7 +244,7 @@ export function CommandPalette() {
     query,
     allPorts,
     filteredPorts,
-    killPort,
+    runKill,
     openInBrowser,
     openInTerminal,
     openInVSCode,

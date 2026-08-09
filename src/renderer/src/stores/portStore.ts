@@ -226,7 +226,12 @@ export const usePortStore = create<PortState>((set, get) => ({
   },
 
   fetchProcessDetails: async (pid) => {
+    // Clear first so QuickPeek never briefly shows a previous PID's details.
+    set({ processDetails: null })
     const details = await window.api.getProcessDetails(pid)
+    // Drop stale responses: if another fetch started for a different pid,
+    // the returned details won't match (or will be null).
+    if (details && details.pid !== pid) return
     set({ processDetails: details })
   },
 
