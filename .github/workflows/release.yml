@@ -88,7 +88,10 @@ jobs:
 
       - name: Install dependencies
         shell: bash
-        run: npm ci 2>&1 | tee win-install.log
+        run: |
+          npm ci 2>&1 | tee win-install.log
+          # npm ci can skip platform optional deps (npm/cli#4828); rollup needs the Windows native binding.
+          npm install --no-save @rollup/rollup-win32-x64-msvc 2>&1 | tee -a win-install.log
 
       - name: Typecheck
         shell: bash
