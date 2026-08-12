@@ -1,6 +1,6 @@
 {
   "name": "port-pilot",
-  "version": "1.0.14",
+  "version": "1.0.15",
   "description": "A premium developer utility for managing local ports, processes, and development workflows",
   "main": "./out/main/index.js",
   "packageManager": "bun@1.3.11",
