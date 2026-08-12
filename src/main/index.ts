@@ -18,6 +18,8 @@ import {
 } from './ipc'
 import { createTray, destroyTray } from './tray'
 import { initAutoUpdater } from './updater'
+import { setNotificationClickHandler } from './services/notifications'
+import { shutdownWorkbench } from './modules/workbench-ipc'
 import { DEFAULT_SETTINGS } from '../shared/defaults'
 import log from './logger'
 
@@ -34,6 +36,7 @@ process.on('unhandledRejection', (reason) => {
 })
 
 let mainWindow: BrowserWindow | null = null
+let isQuitting = false
 
 const stateFilePath = join(app.getPath('userData'), 'window-state.json')
 
@@ -143,6 +146,14 @@ function createWindow(): void {
     mainWindow = null
   })
 
+  const sendFullScreen = (isFullScreen: boolean): void => {
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send('window-full-screen-changed', isFullScreen)
+    }
+  }
+  mainWindow.on('enter-full-screen', () => sendFullScreen(true))
+  mainWindow.on('leave-full-screen', () => sendFullScreen(false))
+
   mainWindow.on('close', (e) => {
     if (process.platform === 'darwin') {
       if (mainWindow) saveWindowState(mainWindow)
@@ -155,6 +166,18 @@ function createWindow(): void {
     shell.openExternal(url)
     return { action: 'deny' }
   })
+
+  if (is.dev) {
+    // Electron levels: 0 verbose, 1 info, 2 warning, 3 error
+    mainWindow.webContents.on('console-message', (_e, level, message, line, sourceId) => {
+      if (level >= 3) {
+        log.error(`[renderer] ${message} (${sourceId}:${line})`)
+      }
+    })
+    mainWindow.webContents.on('did-fail-load', (_e, code, desc, url) => {
+      log.error(`did-fail-load ${code} ${desc} ${url}`)
+    })
+  }
 
   if (is.dev && process.env['ELECTRON_RENDERER_URL']) {
     mainWindow.loadURL(process.env['ELECTRON_RENDERER_URL'])
@@ -197,6 +220,7 @@ if (!gotSingleInstanceLock) {
 
   app.whenReady().then(() => {
     registerIpcHandlers()
+    setNotificationClickHandler(() => showMainWindow())
     createWindow()
     registerGlobalShortcuts()
     createTray({
@@ -223,15 +247,15 @@ if (!gotSingleInstanceLock) {
 
   app.on('window-all-closed', () => {
     if (process.platform !== 'darwin') {
-      stopPortPolling()
-      globalShortcut.unregisterAll()
-      destroyTray()
       app.quit()
     }
   })
 
-  app.on('before-quit', () => {
-    if (mainWindow) {
+  app.on('before-quit', (event) => {
+    if (isQuitting) return
+    isQuitting = true
+    event.preventDefault()
+    if (mainWindow && !mainWindow.isDestroyed()) {
       saveWindowState(mainWindow)
       mainWindow.removeAllListeners('close')
       mainWindow.close()
@@ -239,5 +263,6 @@ if (!gotSingleInstanceLock) {
     stopPortPolling()
     globalShortcut.unregisterAll()
     destroyTray()
+    void shutdownWorkbench().finally(() => app.exit(0))
   })
 }

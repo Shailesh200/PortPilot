@@ -1,4 +1,4 @@
-import { Tray, Menu, nativeImage, app, dialog } from 'electron'
+import { Tray, Menu, nativeImage, app, dialog, BrowserWindow } from 'electron'
 import { join } from 'path'
 import {
   killProcess,
@@ -6,6 +6,7 @@ import {
   openInTerminal,
   restartProcess
 } from './services/process-manager'
+import { markExpectedStopsForPid } from './services/expected-stops'
 import {
   getLastPorts,
   onPortsChanged,
@@ -14,7 +15,15 @@ import {
   getRegisteredShortcut
 } from './ipc'
 import { loadProfilesState, addPortToProfileFile } from './profiles-persistence'
-import type { PortInfo, Profile } from '../shared/types'
+import {
+  getClipboardHistory,
+  isClipboardCaptureEnabled,
+  setClipboardCapture,
+  writeClipboardText,
+  clearClipboardHistory,
+  deleteClipboardItem
+} from './modules/clipboard/clipboard-service'
+import type { ClipboardItem, NavLocation, PortInfo, Profile } from '../shared/types'
 
 export interface TrayHandlers {
   showWindow: () => void
@@ -40,18 +49,41 @@ function addToProfileMenuItem(
   port: PortInfo,
   profiles: Profile[]
 ): Electron.MenuItemConstructorOptions {
-  if (profiles.length === 0) {
-    return { label: 'Add to profile', enabled: false }
-  }
-  return {
-    label: 'Add to profile',
-    submenu: profiles.map((pr) => ({
-      label: `${pr.icon} ${pr.name}`,
-      click: () => {
-        addPortToProfileFile(pr.id, port.port)
-        notifyProfilesChanged()
+  const profileItems: Electron.MenuItemConstructorOptions[] = profiles.map(
+    (pr) => {
+      const already = pr.favoritePorts.includes(port.port)
+      return {
+        label: already
+          ? `${pr.icon} ${pr.name}  ✓`
+          : `${pr.icon} ${pr.name}`,
+        enabled: !already,
+        click: () => {
+          addPortToProfileFile(pr.id, port.port)
+          notifyProfilesChanged()
+          refreshTrayMenus()
+        }
       }
-    }))
+    }
+  )
+  return {
+    label: 'Add to profiles',
+    submenu: [
+      ...profileItems,
+      ...(profileItems.length > 0 ? [{ type: 'separator' as const }] : []),
+      {
+        label: 'New profile…',
+        click: () => {
+          handlers?.showWindow()
+          for (const w of BrowserWindow.getAllWindows()) {
+            try {
+              if (!w.isDestroyed()) w.webContents.send('open-profile-creator')
+            } catch {
+              /* ignore */
+            }
+          }
+        }
+      }
+    ]
   }
 }
 
@@ -71,6 +103,150 @@ async function confirmTrayAction(action: string, detail: string): Promise<boolea
     detail
   })
   return response === 1
+}
+
+function navigateFromTray(nav: NavLocation): void {
+  handlers?.showWindow()
+  for (const w of BrowserWindow.getAllWindows()) {
+    try {
+      if (!w.isDestroyed()) w.webContents.send('navigate-to', nav)
+    } catch {
+      /* ignore */
+    }
+  }
+}
+
+function clipPreview(text: string, max = 36): string {
+  const oneLine = text.replace(/\s+/g, ' ').trim()
+  if (!oneLine) return '(empty)'
+  if (oneLine.length <= max) return oneLine
+  return `${oneLine.slice(0, max - 1)}…`
+}
+
+function portsSubmenu(
+  ports: PortInfo[],
+  profiles: Profile[]
+): Electron.MenuItemConstructorOptions[] {
+  const shown = ports.slice(0, 10)
+  const highCpu = ports.filter((p) => p.cpu > 50).length
+
+  const items: Electron.MenuItemConstructorOptions[] = [
+    {
+      label: 'Open Ports',
+      click: () => navigateFromTray({ module: 'ports', screen: 'dashboard' })
+    }
+  ]
+
+  if (highCpu > 0) {
+    items.push({
+      label: `${highCpu} high CPU`,
+      enabled: false
+    })
+  }
+
+  if (shown.length === 0) {
+    items.push(
+      { type: 'separator' },
+      { label: 'No listening ports', enabled: false }
+    )
+    return items
+  }
+
+  items.push({ type: 'separator' })
+  for (const port of shown) {
+    const name = port.projectName || port.command
+    items.push({
+      label: `:${port.port}  ${name}`,
+      sublabel: `PID ${port.pid} · ${port.cpu.toFixed(0)}% CPU`,
+      submenu: portActionsSubmenu(port, profiles, { includeStats: true })
+    })
+  }
+
+  if (ports.length > shown.length) {
+    items.push(
+      { type: 'separator' },
+      {
+        label: `Show all ${ports.length} in app…`,
+        click: () => navigateFromTray({ module: 'ports', screen: 'dashboard' })
+      }
+    )
+  }
+
+  return items
+}
+
+function clipboardSubmenu(
+  clips: ClipboardItem[],
+  captureOn: boolean
+): Electron.MenuItemConstructorOptions[] {
+  const recent = clips.slice(0, 6)
+
+  const items: Electron.MenuItemConstructorOptions[] = [
+    {
+      label: 'Capture',
+      type: 'checkbox',
+      checked: captureOn,
+      click: (menuItem) => {
+        setClipboardCapture(menuItem.checked)
+        refreshTrayMenus()
+      }
+    },
+    {
+      label: 'Open Clipboard',
+      click: () => navigateFromTray({ module: 'text', screen: 'clipboard' })
+    }
+  ]
+
+  if (recent.length === 0) {
+    items.push(
+      { type: 'separator' },
+      {
+        label: captureOn ? 'No clips yet' : 'Capture is off',
+        enabled: false
+      }
+    )
+    return items
+  }
+
+  items.push(
+    { type: 'separator' },
+    {
+      label: `Recent (${clips.length})`,
+      enabled: false
+    }
+  )
+
+  for (const clip of recent) {
+    items.push({
+      label: `${clip.kind} · ${clipPreview(clip.text)}`,
+      submenu: [
+        {
+          label: 'Copy again',
+          click: () => writeClipboardText(clip.text)
+        },
+        {
+          label: 'Delete',
+          click: () => {
+            deleteClipboardItem(clip.id)
+            refreshTrayMenus()
+          }
+        }
+      ]
+    })
+  }
+
+  items.push(
+    { type: 'separator' },
+    {
+      label: 'Clear unpinned',
+      click: () => {
+        clearClipboardHistory(true)
+        refreshTrayMenus()
+      }
+    }
+  )
+
+  return items
 }
 
 function portActionsSubmenu(
@@ -99,6 +275,7 @@ function portActionsSubmenu(
           `Restart :${port.port} (${port.command}, PID ${port.pid})?`
         )
         if (!ok) return
+        markExpectedStopsForPid(port.pid, getLastPorts())
         await restartProcess(port.pid, port.projectPath)
       }
     },
@@ -111,6 +288,7 @@ function portActionsSubmenu(
           `Kill :${port.port} (${port.command}, PID ${port.pid})?`
         )
         if (!ok) return
+        markExpectedStopsForPid(port.pid, getLastPorts())
         await killProcess(port.pid)
       }
     },
@@ -137,43 +315,27 @@ function buildContextMenu(
   profiles: Profile[],
   openAtLogin: boolean
 ): Menu {
-  const portItems: Electron.MenuItemConstructorOptions[] = ports
-    .slice(0, 12)
-    .map((port) => ({
-      label: `:${port.port}  ${port.projectName || port.command}`,
-      sublabel: `PID ${port.pid} — CPU ${port.cpu.toFixed(1)}%`,
-      submenu: portActionsSubmenu(port, profiles, { includeStats: true })
-    }))
-
-  const hasHighCpu = ports.some((p) => p.cpu > 50)
+  const clips = getClipboardHistory()
+  const captureOn = isClipboardCaptureEnabled()
+  const highCpu = ports.filter((p) => p.cpu > 50).length
+  const portsLabel =
+    highCpu > 0
+      ? `Ports (${ports.length} · ${highCpu} high CPU)`
+      : `Ports (${ports.length})`
+  const clipboardLabel = captureOn
+    ? `Clipboard (${clips.length})`
+    : 'Clipboard (paused)'
 
   return Menu.buildFromTemplate([
     {
-      label: `${ports.length} Active Port${ports.length !== 1 ? 's' : ''}`,
-      enabled: false
+      label: portsLabel,
+      submenu: portsSubmenu(ports, profiles)
     },
-    ...(hasHighCpu
-      ? [
-          {
-            label: `⚠ ${ports.filter((p) => p.cpu > 50).length} High CPU`,
-            enabled: false
-          }
-        ]
-      : []),
-    { type: 'separator' as const },
-    ...portItems,
-    ...(ports.length > 12
-      ? [
-          {
-            label: `... and ${ports.length - 12} more`,
-            enabled: false
-          }
-        ]
-      : []),
-    ...(ports.length === 0
-      ? [{ label: 'No listening ports', enabled: false }]
-      : []),
-    { type: 'separator' as const },
+    {
+      label: clipboardLabel,
+      submenu: clipboardSubmenu(clips, captureOn)
+    },
+    { type: 'separator' },
     {
       label: 'Open PortPilot',
       accelerator: getRegisteredShortcut() || undefined,
@@ -181,7 +343,6 @@ function buildContextMenu(
         handlers?.showWindow()
       }
     },
-    { type: 'separator' as const },
     {
       label: 'Start at Login',
       type: 'checkbox',
@@ -190,12 +351,11 @@ function buildContextMenu(
         app.setLoginItemSettings({ openAtLogin: menuItem.checked })
       }
     },
-    { type: 'separator' as const },
+    { type: 'separator' },
     {
       label: 'Quit PortPilot',
       accelerator: 'CommandOrControl+Q',
       click: () => {
-        // app.exit() skips before-quit handlers (window state, polling cleanup)
         app.quit()
       }
     }
@@ -208,12 +368,8 @@ function syncDockMenu(ports: PortInfo[], profiles: Profile[]): void {
     const dock = app.dock
     if (!dock || typeof dock.setMenu !== 'function') return
 
-    const portDockItems: Electron.MenuItemConstructorOptions[] = ports
-      .slice(0, 12)
-      .map((port) => ({
-        label: `:${port.port}  ${port.projectName || port.command}`,
-        submenu: portActionsSubmenu(port, profiles, { includeStats: false })
-      }))
+    const clips = getClipboardHistory()
+    const captureOn = isClipboardCaptureEnabled()
 
     dock.setMenu(
       Menu.buildFromTemplate([
@@ -224,17 +380,16 @@ function syncDockMenu(ports: PortInfo[], profiles: Profile[]): void {
           }
         },
         { type: 'separator' as const },
-        ...(ports.length === 0
-          ? [{ label: 'No active ports', enabled: false }]
-          : portDockItems),
-        ...(ports.length > 12
-          ? [
-              {
-                label: `…and ${ports.length - 12} more (use menu bar icon)`,
-                enabled: false
-              }
-            ]
-          : [])
+        {
+          label: `Ports (${ports.length})`,
+          submenu: portsSubmenu(ports, profiles)
+        },
+        {
+          label: captureOn
+            ? `Clipboard (${clips.length})`
+            : 'Clipboard (paused)',
+          submenu: clipboardSubmenu(clips, captureOn)
+        }
       ])
     )
   } catch {
@@ -257,6 +412,11 @@ function menuSignature(
   const profileSig = profiles
     .map((p) => `${p.id}:${p.icon}:${p.name}:${p.favoritePorts.join(',')}`)
     .join('|')
+  const clips = getClipboardHistory()
+  const clipSig = clips
+    .slice(0, 8)
+    .map((c) => `${c.id}:${c.pinned ? 1 : 0}:${c.kind}`)
+    .join('|')
   const highCpuCount = ports.filter((p) => p.cpu > 50).length
   const hasWarning = ports.some((p) => p.cpu > 80)
   const safety = getSafetySettings()
@@ -268,7 +428,10 @@ function menuSignature(
     profileSig,
     openAtLogin,
     safety.protectSystemPorts,
-    getRegisteredShortcut() || ''
+    getRegisteredShortcut() || '',
+    isClipboardCaptureEnabled() ? 1 : 0,
+    clips.length,
+    clipSig
   ].join('#')
 }
 
@@ -302,6 +465,11 @@ function updateTray(ports: PortInfo[], force = false): void {
   } catch {
     // tray update is best-effort
   }
+}
+
+/** Force tray + dock menus to rebuild (e.g. after profile create/delete). */
+export function refreshTrayMenus(): void {
+  updateTray(getLastPorts(), true)
 }
 
 export function createTray(trayHandlers: TrayHandlers): Tray {

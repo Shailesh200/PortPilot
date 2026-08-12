@@ -1,8 +1,8 @@
 import { readFileSync, writeFileSync, existsSync, renameSync } from 'fs'
 import { join } from 'path'
 import { app } from 'electron'
-import type { ProfilesPersistState } from '../shared/types'
-import { DEFAULT_PROFILES } from '../shared/defaults'
+import type { Profile, ProfilesPersistState } from '../shared/types'
+import { DEFAULT_PROFILES, LEGACY_DEFAULT_PROFILE_IDS } from '../shared/defaults'
 
 function filePath(): string {
   return join(app.getPath('userData'), 'portpilot-profiles.json')
@@ -15,6 +15,31 @@ function defaultState(): ProfilesPersistState {
   }
 }
 
+function normalizeProfile(p: Partial<Profile>): Profile | null {
+  if (!p || typeof p.id !== 'string' || typeof p.name !== 'string') return null
+  return {
+    id: String(p.id),
+    name: String(p.name),
+    icon: String(p.icon || '🔧'),
+    favoritePorts: Array.isArray(p.favoritePorts)
+      ? p.favoritePorts.filter(
+          (n: unknown) => typeof n === 'number' && n > 0 && n <= 65535
+        )
+      : [],
+    filters: typeof p.filters === 'object' && p.filters ? p.filters : {},
+    autoActions:
+      typeof p.autoActions === 'object' && p.autoActions ? p.autoActions : {}
+  }
+}
+
+function stripLegacyDefaults(profiles: Profile[]): {
+  profiles: Profile[]
+  changed: boolean
+} {
+  const next = profiles.filter((p) => !LEGACY_DEFAULT_PROFILE_IDS.has(p.id))
+  return { profiles: next, changed: next.length !== profiles.length }
+}
+
 function readFromDisk(): ProfilesPersistState {
   try {
     const p = filePath()
@@ -22,26 +47,28 @@ function readFromDisk(): ProfilesPersistState {
       return defaultState()
     }
     const raw = JSON.parse(readFileSync(p, 'utf-8')) as Partial<ProfilesPersistState>
-    if (!Array.isArray(raw.profiles) || raw.profiles.length === 0) {
+    if (!Array.isArray(raw.profiles)) {
       return defaultState()
     }
-    return {
-      profiles: raw.profiles.map((p) => ({
-        id: String(p.id),
-        name: String(p.name),
-        icon: String(p.icon || '🔧'),
-        favoritePorts: Array.isArray(p.favoritePorts)
-          ? p.favoritePorts.filter(
-              (n: unknown) => typeof n === 'number' && n > 0 && n <= 65535
-            )
-          : [],
-        filters: typeof p.filters === 'object' && p.filters ? p.filters : {},
-        autoActions:
-          typeof p.autoActions === 'object' && p.autoActions ? p.autoActions : {}
-      })),
-      activeProfileId:
-        typeof raw.activeProfileId === 'string' ? raw.activeProfileId : null
+    const normalized = raw.profiles
+      .map((pr) => normalizeProfile(pr as Partial<Profile>))
+      .filter((pr): pr is Profile => pr != null)
+    const { profiles, changed } = stripLegacyDefaults(normalized)
+    let activeProfileId =
+      typeof raw.activeProfileId === 'string' ? raw.activeProfileId : null
+    if (activeProfileId && !profiles.some((pr) => pr.id === activeProfileId)) {
+      activeProfileId = null
     }
+    const state: ProfilesPersistState = { profiles, activeProfileId }
+    // Persist the strip so Frontend/Backend don't keep coming back
+    if (changed) {
+      try {
+        writeFileSync(p, JSON.stringify(state, null, 2), 'utf-8')
+      } catch {
+        /* ignore */
+      }
+    }
+    return state
   } catch {
     return defaultState()
   }

@@ -14,6 +14,8 @@ function saveProfilesToDisk(profiles: Profile[], activeProfileId: string | null)
 interface SettingsState extends AppSettings {
   profiles: Profile[]
   activeProfileId: string | null
+  /** When true, Profiles settings should open the create form. */
+  openProfileCreator: boolean
 
   updateSettings: (settings: Partial<AppSettings>) => void
   addProfile: (profile: Profile) => void
@@ -24,6 +26,8 @@ interface SettingsState extends AppSettings {
     profiles: Profile[],
     activeProfileId: string | null
   ) => void
+  requestOpenProfileCreator: () => void
+  clearOpenProfileCreator: () => void
   resetSettings: () => void
 }
 
@@ -33,6 +37,7 @@ export const useSettingsStore = create<SettingsState>()(
       ...DEFAULT_SETTINGS,
       profiles: DEFAULT_PROFILES,
       activeProfileId: null,
+      openProfileCreator: false,
 
       updateSettings: (settings) => set((s) => ({ ...s, ...settings })),
 
@@ -75,13 +80,17 @@ export const useSettingsStore = create<SettingsState>()(
       applyLoadedProfiles: (profiles, activeProfileId) =>
         set({ profiles, activeProfileId }),
 
+      requestOpenProfileCreator: () => set({ openProfileCreator: true }),
+      clearOpenProfileCreator: () => set({ openProfileCreator: false }),
+
       resetSettings: () => {
         set({
           ...DEFAULT_SETTINGS,
-          profiles: DEFAULT_PROFILES,
-          activeProfileId: null
+          profiles: [],
+          activeProfileId: null,
+          openProfileCreator: false
         })
-        saveProfilesToDisk(DEFAULT_PROFILES, null)
+        saveProfilesToDisk([], null)
       }
     }),
     {

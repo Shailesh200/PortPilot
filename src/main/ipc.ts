@@ -10,9 +10,19 @@ import {
   openInTerminal,
   openInVSCode,
   restartProcess,
-  getProcessLogs
+  setAutoFocusTerminal
 } from './services/process-manager'
+import { markExpectedStopsForPid } from './services/expected-stops'
+import {
+  processPortAlerts,
+  updateAlertSettings
+} from './services/port-alerts'
 import type { PortInfo, ProfilesPersistState, Profile } from '../shared/types'
+import { registerWorkbenchIpc } from './modules/workbench-ipc'
+
+function markStopsForPid(pid: number): void {
+  markExpectedStopsForPid(pid, lastPorts)
+}
 
 export function notifyProfilesChanged(): void {
   for (const w of BrowserWindow.getAllWindows()) {
@@ -21,6 +31,17 @@ export function notifyProfilesChanged(): void {
     } catch {
       /* ignore */
     }
+  }
+  // Tray/dock menus cache a signature — rebuild so "Add to profiles" stays current.
+  try {
+    // Lazy require avoids a circular import with tray.ts
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { refreshTrayMenus } = require('./tray') as {
+      refreshTrayMenus: () => void
+    }
+    refreshTrayMenus()
+  } catch {
+    /* tray may not be ready yet */
   }
 }
 
@@ -86,11 +107,13 @@ export function updateGlobalShortcut(shortcut: string): boolean {
 interface SafetySettings {
   protectSystemPorts: boolean
   confirmDestructive: boolean
+  autoFocusTerminal: boolean
 }
 
 let safetySettings: SafetySettings = {
   protectSystemPorts: true,
-  confirmDestructive: true
+  confirmDestructive: true,
+  autoFocusTerminal: true
 }
 
 export function getSafetySettings(): SafetySettings {
@@ -114,23 +137,20 @@ export function registerIpcHandlers(): void {
     return getProcessDetails(pid)
   })
 
-  ipcMain.handle('get-process-logs', async (_event, pid: number) => {
-    if (!validatePid(pid)) return []
-    return getProcessLogs(pid)
-  })
-
   ipcMain.handle('kill-process', async (_event, pid: number, force?: boolean) => {
     if (!validatePid(pid)) return false
     if (isProtectedPid(pid)) {
       log.warn(`Refused to kill protected system process pid=${pid}`)
       return false
     }
+    markStopsForPid(pid)
     return killProcess(pid, force)
   })
 
   ipcMain.handle('kill-processes', async (_event, pids: number[]) => {
     if (!Array.isArray(pids) || !pids.every(validatePid)) return []
     const allowed = pids.filter((pid) => !isProtectedPid(pid))
+    for (const pid of allowed) markStopsForPid(pid)
     return killProcesses(allowed)
   })
 
@@ -155,7 +175,18 @@ export function registerIpcHandlers(): void {
       log.warn(`Refused to restart protected system process pid=${pid}`)
       return { success: false, error: 'This is a protected system process.' }
     }
+    markStopsForPid(pid)
     return restartProcess(pid, typeof projectPath === 'string' ? projectPath : undefined)
+  })
+
+  ipcMain.handle('update-alert-settings', async (_event, settings: unknown) => {
+    if (!settings || typeof settings !== 'object') return
+    const s = settings as Partial<{
+      notifyPortChange: boolean
+      notifyCrash: boolean
+      autoOpenBrowser: boolean
+    }>
+    updateAlertSettings(s)
   })
 
   ipcMain.handle('update-poll-interval', async (_event, intervalMs: number) => {
@@ -182,11 +213,35 @@ export function registerIpcHandlers(): void {
       confirmDestructive:
         typeof s.confirmDestructive === 'boolean'
           ? s.confirmDestructive
-          : safetySettings.confirmDestructive
+          : safetySettings.confirmDestructive,
+      autoFocusTerminal:
+        typeof s.autoFocusTerminal === 'boolean'
+          ? s.autoFocusTerminal
+          : safetySettings.autoFocusTerminal
     }
+    setAutoFocusTerminal(safetySettings.autoFocusTerminal)
   })
 
   ipcMain.handle('get-app-version', async () => app.getVersion())
+
+  ipcMain.handle('window-is-full-screen', (event) => {
+    const win = BrowserWindow.fromWebContents(event.sender)
+    return win ? win.isFullScreen() : false
+  })
+
+  ipcMain.handle('window-set-full-screen', (event, flag: unknown) => {
+    const win = BrowserWindow.fromWebContents(event.sender)
+    if (!win) return false
+    win.setFullScreen(Boolean(flag))
+    return win.isFullScreen()
+  })
+
+  ipcMain.handle('window-toggle-full-screen', (event) => {
+    const win = BrowserWindow.fromWebContents(event.sender)
+    if (!win) return false
+    win.setFullScreen(!win.isFullScreen())
+    return win.isFullScreen()
+  })
 
   ipcMain.handle('load-profiles', async () => loadProfilesState())
 
@@ -212,6 +267,7 @@ export function registerIpcHandlers(): void {
     return true
   })
 
+  registerWorkbenchIpc()
 }
 
 let currentIntervalMs = 3000
@@ -245,6 +301,8 @@ export function startPortPolling(window: BrowserWindow, intervalMs = 3000): void
     try {
       const ports = await scanPorts()
       lastPorts = ports
+      // Alerts run even when hidden so crash OS notifications still fire.
+      processPortAlerts(window.isDestroyed() ? null : window, ports)
       if (visible && !window.isDestroyed()) {
         window.webContents.send('ports-updated', ports)
       }

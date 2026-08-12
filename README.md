@@ -1,6 +1,6 @@
 # PortPilot
 
-A premium desktop utility for developers to monitor, manage, and control local ports, processes, and development workflows. Built with Electron, React, and TypeScript.
+A desktop utility for developers to monitor local ports and processes, and to work with text, clipboard history, and databases. Built with Electron, React, and TypeScript.
 
 ## Features
 
@@ -9,17 +9,19 @@ A premium desktop utility for developers to monitor, manage, and control local p
 - **Terminal Integration** -- jump to the exact terminal tab (Terminal.app, iTerm2, Warp, Cursor, VS Code) where a process is running
 - **Editor Integration** -- open any project in VS Code or Cursor with one click
 - **Browser Preview** -- open `localhost` URLs for any port instantly
-- **Command Palette** (`Cmd + K`) -- fuzzy search across ports, processes, and actions
-- **Global Launcher** (`Cmd + Shift + P`) -- summon PortPilot from anywhere on your system
+- **Text & Data tools** -- JSON formatter/diff, JS console, text diff, and format conversion (JSON, YAML, CSV, Markdown, HTML, PDF, DOCX, XLSX)
+- **Clipboard history** -- searchable capture of copied text, JSON, URLs, and more
+- **Database client** -- Postgres, MySQL, SQLite, Turso, Redis, and MongoDB, with optional SSH tunnels
+- **Command Palette** (`Cmd + K`) -- fuzzy search across ports, processes, clipboard, and navigation
+- **Global Launcher** (`Cmd + Option + P` by default) -- summon PortPilot from anywhere on your system
 - **Menu Bar Tray** -- quick access to active ports from the macOS menu bar
 - **Batch Actions** -- select multiple ports and kill/restart them all at once
 - **Tagging & Grouping** -- tag ports and group by project, process type, or resource usage
 - **Profiles** -- save and switch between port configurations, filters, and auto-actions
 - **Notifications** -- get alerted on port changes, high CPU/memory, and crashes
-- **Session Restore** -- picks up where you left off with filters, selections, and panels
+- **Session Restore** -- picks up where you left off across Ports, Text, Database, and Settings
 - **Activity Log** -- track every action (kills, restarts, opens) with timestamps
-- **Process Logs** -- view real-time stdout/stderr output for any running process
-- **Keyboard-first** -- extensive shortcuts for every action, fully customizable
+- **Keyboard-first** -- extensive shortcuts for every action
 - **Themes** -- light and dark mode with system preference detection
 - **Auto-updater** -- get notified of new versions automatically
 
@@ -57,22 +59,22 @@ codesign --force --deep --sign - /Applications/PortPilot.app
 
 | Shortcut | Action |
 |----------|--------|
-| `Cmd + Shift + P` | Launch/focus PortPilot (global, works from any app) |
+| `Cmd + Option + P` | Launch/focus PortPilot (global, works from any app; customizable) |
 | `Cmd + K` | Open command palette |
 | `Cmd + ,` | Open settings |
-| `Cmd + 1-5` | Switch sidebar tabs |
-| `Cmd + R` | Refresh ports |
-| `Cmd + F` | Focus search |
+| `Cmd + 1` | Ports |
+| `Cmd + 2` | Text & Data |
+| `Cmd + 3` | Database |
+| `/` | Focus search (Ports) |
 | `Escape` | Close modals / clear selection |
 | `Space` | Quick peek selected port |
-| `Delete / Backspace` | Kill selected port |
+| `K` | Kill selected port |
 | `Arrow Up / Down` | Navigate port list |
 
 ## Development
 
 ### Prerequisites
 
-- [Bun](https://bun.sh/) (runtime and package manager)
 - [Node.js](https://nodejs.org/) 22+
 
 ### Setup
@@ -80,35 +82,34 @@ codesign --force --deep --sign - /Applications/PortPilot.app
 ```bash
 git clone git@github.com:Shailesh200/PortPilot.git
 cd PortPilot
-bun install
+npm install
 ```
 
 ### Run in development
 
 ```bash
-bun run dev
+npm run dev
 ```
 
 ### Build for production
 
 ```bash
-bun run build
+npm run build
 ```
 
 ### Package for distribution
 
 ```bash
 # macOS
-bun run build && npx electron-builder --mac
+npm run build && npx electron-builder --mac
 
 # Windows
-bun run build && npx electron-builder --win
+npm run build && npx electron-builder --win
 ```
 
 ## Tech Stack
 
 - **Desktop Shell** -- Electron
-- **Runtime** -- Bun
 - **UI** -- React + TypeScript
 - **State Management** -- Zustand (with persistence)
 - **Styling** -- TailwindCSS

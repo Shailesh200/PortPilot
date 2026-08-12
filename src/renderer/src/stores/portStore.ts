@@ -2,6 +2,7 @@ import { create } from 'zustand'
 import Fuse from 'fuse.js'
 import type { PortInfo, ProcessDetails, ActionHistoryItem } from '../../../shared/types'
 import { useSettingsStore } from './settingsStore'
+import { useUIStore } from './uiStore'
 
 interface PortState {
   ports: PortInfo[]
@@ -16,11 +17,13 @@ interface PortState {
   tags: Record<number, string[]>
   isLoading: boolean
   profileFilter: number[]
+  groupByProject: boolean
 
   setPorts: (ports: PortInfo[]) => void
   setProfileFilter: (ports: number[]) => void
   setSearchQuery: (query: string) => void
   setSortBy: (key: keyof PortInfo) => void
+  setGroupByProject: (value: boolean) => void
   selectPort: (pid: number) => void
   togglePortSelection: (pid: number) => void
   selectAll: () => void
@@ -139,6 +142,7 @@ export const usePortStore = create<PortState>((set, get) => ({
   tags: {},
   isLoading: false,
   profileFilter: [],
+  groupByProject: false,
 
   setPorts: (ports) => {
     const { searchQuery, sortBy, sortDirection, tags, profileFilter } = get()
@@ -181,6 +185,8 @@ export const usePortStore = create<PortState>((set, get) => ({
     })
   },
 
+  setGroupByProject: (value) => set({ groupByProject: value }),
+
   selectPort: (pid) => {
     const { filteredPorts } = get()
     const idx = filteredPorts.findIndex((p) => p.pid === pid)
@@ -203,7 +209,7 @@ export const usePortStore = create<PortState>((set, get) => ({
     set({ selectedPids: new Set(filteredPorts.map((p) => p.pid)) })
   },
 
-  clearSelection: () => set({ selectedPids: new Set() }),
+  clearSelection: () => set({ selectedPids: new Set(), selectedIndex: -1 }),
 
   moveSelection: (direction) => {
     const { filteredPorts, selectedIndex } = get()
@@ -290,8 +296,13 @@ export const usePortStore = create<PortState>((set, get) => ({
   },
 
   openInTerminal: async (pid, projectPath) => {
-    await window.api.openInTerminal(pid, projectPath)
+    const result = await window.api.openInTerminal(pid, projectPath)
     get().addHistory({ action: 'open-terminal', pid })
+    useUIStore.getState().addToast({
+      type: result.ok ? (result.method === 'focused-tab' ? 'success' : 'info') : 'error',
+      title: result.ok ? 'Terminal' : 'Terminal failed',
+      message: result.message
+    })
   },
 
   openInVSCode: async (pid, projectPath) => {

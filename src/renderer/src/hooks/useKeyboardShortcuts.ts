@@ -37,14 +37,14 @@ export function useKeyboardShortcuts() {
   const openQuickPeek = useUIStore((s) => s.openQuickPeek)
   const closeQuickPeek = useUIStore((s) => s.closeQuickPeek)
   const isQuickPeekOpen = useUIStore((s) => s.isQuickPeekOpen)
-  const setView = useUIStore((s) => s.setView)
+  const openModule = useUIStore((s) => s.openModule)
   const addToast = useUIStore((s) => s.addToast)
   const toggleRowExpansion = useUIStore((s) => s.toggleRowExpansion)
   const confirmDestructive = useSettingsStore((s) => s.confirmDestructive)
   const protectSystemPorts = useSettingsStore((s) => s.protectSystemPorts)
   const showConfirm = useUIStore((s) => s.showConfirm)
   const confirmDialog = useUIStore((s) => s.confirmDialog)
-  const currentView = useUIStore((s) => s.currentView)
+  const nav = useUIStore((s) => s.nav)
 
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
@@ -60,23 +60,23 @@ export function useKeyboardShortcuts() {
 
       if ((e.metaKey || e.ctrlKey) && e.key === '1') {
         e.preventDefault()
-        setView('dashboard')
+        openModule('ports')
         return
       }
       if ((e.metaKey || e.ctrlKey) && e.key === '2') {
         e.preventDefault()
-        setView('heatmap')
+        openModule('text')
         return
       }
       if ((e.metaKey || e.ctrlKey) && e.key === '3') {
         e.preventDefault()
-        setView('logs')
+        openModule('database')
         return
       }
 
       if ((e.metaKey || e.ctrlKey) && e.key === ',') {
         e.preventDefault()
-        setView('settings')
+        openModule('settings')
         return
       }
 
@@ -91,8 +91,10 @@ export function useKeyboardShortcuts() {
 
       if (isQuickPeekOpen) return
 
+      const portsScreen =
+        nav.module === 'ports' ? nav.screen : null
       const allowPortNav =
-        currentView === 'dashboard' || currentView === 'heatmap'
+        portsScreen === 'dashboard' || portsScreen === 'heatmap'
       if (!allowPortNav) return
 
       if (shouldIgnorePortShortcuts(e.target)) return
@@ -111,11 +113,12 @@ export function useKeyboardShortcuts() {
         const p = ports[idx]
         if (p) {
           queueMicrotask(() => {
-            const view = useUIStore.getState().currentView
+            const n = useUIStore.getState().nav
+            const screen = n.module === 'ports' ? n.screen : null
             const selector =
-              view === 'dashboard'
+              screen === 'dashboard'
                 ? `[data-port-row="${p.pid}"]`
-                : view === 'heatmap'
+                : screen === 'heatmap'
                   ? `[data-heatmap-cell="${p.pid}"]`
                   : null
             if (!selector) return
@@ -127,7 +130,7 @@ export function useKeyboardShortcuts() {
       }
 
       if (e.key === 'ArrowRight') {
-        if (currentView === 'dashboard') {
+        if (portsScreen === 'dashboard') {
           const port = filteredPorts[selectedIndex]
           if (port) toggleRowExpansion(port.pid)
         }
@@ -227,13 +230,13 @@ export function useKeyboardShortcuts() {
     openQuickPeek,
     closeQuickPeek,
     isQuickPeekOpen,
-    setView,
+    openModule,
     addToast,
     toggleRowExpansion,
     confirmDestructive,
     protectSystemPorts,
     showConfirm,
     confirmDialog,
-    currentView
+    nav
   ])
 }
