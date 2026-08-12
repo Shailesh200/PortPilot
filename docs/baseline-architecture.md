@@ -67,7 +67,7 @@ Vite also warns that `portStore` is both statically and dynamically imported, so
 | `PortPilot-1.0.13-arm64-mac.zip` | **130.7 MB** |
 | `PortPilot-Setup-1.0.13.exe` | **106.0 MB** |
 
-**Observation:** Installer size is dominated by the Electron/Chromium runtime, not the 6.9 MB `out/` payload. Tier 1 (Bun/React/Tailwind/Vite) will **not** move installer size much; shell migrations (Tier 3) would.
+**Observation:** Installer size is dominated by the Electron/Chromium runtime, not the 6.9 MB `out/` payload. Tier 1 (Bun/React/Tailwind/Vite) will **not** move installer size much.
 
 ## Runtime: cold start & idle memory (production, local)
 
@@ -176,5 +176,5 @@ Machine file: `docs/app-perf-metrics.json`.
 
 Also done: deferred PDF worker helper, lazy CommandPalette/QuickPeek, PortTable memo + virtualize (>60), Heatmap memo cells, deferred `uiStore` nav rehydrate, shared `IpcChannel`/`IpcEvent`, `src/main/os` façade + resilient tray icon paths, Linux/Windows project-path cache, README shortcut sync, VS Code shortcut conflict warning.
 
-Shell migration (Tauri/etc.) intentionally **not** started — OS façade is the prep step.
+Staying on Electron for the desktop shell.
 

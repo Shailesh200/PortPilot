@@ -1,7 +1,7 @@
 /**
  * OS / platform service façade.
- * Electron main code should depend on this module so a future shell
- * (Tauri, etc.) can swap implementations without rewriting IPC/UI.
+ * Prefer this module over direct Electron APIs in feature code so
+ * platform concerns stay in one place.
  */
 export { scanPorts } from '../services/port-scanner'
 export {
