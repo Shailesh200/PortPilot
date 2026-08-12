@@ -1,11 +1,10 @@
 import { readFileSync, writeFileSync, existsSync, renameSync } from 'fs'
-import { join } from 'path'
-import { app } from 'electron'
+import { userDataFile } from './os'
 import type { Profile, ProfilesPersistState } from '../shared/types'
 import { DEFAULT_PROFILES, LEGACY_DEFAULT_PROFILE_IDS } from '../shared/defaults'
 
 function filePath(): string {
-  return join(app.getPath('userData'), 'portpilot-profiles.json')
+  return userDataFile('portpilot-profiles.json')
 }
 
 function defaultState(): ProfilesPersistState {

@@ -1,16 +1,16 @@
 import { autoUpdater } from 'electron-updater'
-import { BrowserWindow, ipcMain } from 'electron'
+import { BrowserWindow } from 'electron'
 import log from './logger'
 import type { UpdateInfo } from '../shared/types'
+import { IpcChannel, IpcEvent } from '../shared/ipc'
+import { handleInvoke, sendEvent } from './ipc-handle'
 
 autoUpdater.logger = log
 autoUpdater.autoDownload = true
 autoUpdater.autoInstallOnAppQuit = true
 
 function send(mainWindow: BrowserWindow, info: UpdateInfo): void {
-  if (!mainWindow.isDestroyed()) {
-    mainWindow.webContents.send('update-status', info)
-  }
+  sendEvent(mainWindow, IpcEvent.updateStatus, info)
 }
 
 export function initAutoUpdater(mainWindow: BrowserWindow): void {
@@ -33,7 +33,7 @@ export function initAutoUpdater(mainWindow: BrowserWindow): void {
     })
   })
 
-  ipcMain.handle('quit-and-install', () => {
+  handleInvoke(IpcChannel.quitAndInstall, () => {
     autoUpdater.quitAndInstall()
   })
 

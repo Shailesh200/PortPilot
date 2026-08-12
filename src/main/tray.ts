@@ -1,10 +1,14 @@
-import { Tray, Menu, app, dialog, BrowserWindow } from 'electron'
+import { Tray, Menu, app, BrowserWindow } from 'electron'
 import {
   killProcess,
   openInBrowser,
   openInTerminal,
-  restartProcess
+  restartProcess,
+  showMessageBox,
+  loadTrayNativeImage
 } from './os'
+import { IpcEvent } from '../shared/ipc'
+import { sendEvent } from './ipc-handle'
 import { markExpectedStopsForPid } from './services/expected-stops'
 import {
   getLastPorts,
@@ -22,7 +26,6 @@ import {
   clearClipboardHistory,
   deleteClipboardItem
 } from './modules/clipboard/clipboard-service'
-import { loadTrayNativeImage } from './os/resources'
 import type { ClipboardItem, NavLocation, PortInfo, Profile } from '../shared/types'
 
 export interface TrayHandlers {
@@ -67,7 +70,7 @@ function addToProfileMenuItem(
           handlers?.showWindow()
           for (const w of BrowserWindow.getAllWindows()) {
             try {
-              if (!w.isDestroyed()) w.webContents.send('open-profile-creator')
+              sendEvent(w, IpcEvent.openProfileCreator)
             } catch {
               /* ignore */
             }
@@ -84,7 +87,7 @@ function isProtected(port: PortInfo): boolean {
 
 async function confirmTrayAction(action: string, detail: string): Promise<boolean> {
   if (!getSafetySettings().confirmDestructive) return true
-  const { response } = await dialog.showMessageBox({
+  const { response } = await showMessageBox({
     type: 'warning',
     buttons: ['Cancel', action],
     defaultId: 0,
@@ -100,7 +103,7 @@ function navigateFromTray(nav: NavLocation): void {
   handlers?.showWindow()
   for (const w of BrowserWindow.getAllWindows()) {
     try {
-      if (!w.isDestroyed()) w.webContents.send('navigate-to', nav)
+      sendEvent(w, IpcEvent.navigateTo, nav)
     } catch {
       /* ignore */
     }

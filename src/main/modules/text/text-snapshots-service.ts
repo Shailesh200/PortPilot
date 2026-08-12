@@ -1,4 +1,7 @@
-import { BrowserWindow, app } from 'electron'
+import { BrowserWindow } from 'electron'
+import { sendEvent } from '../../ipc-handle'
+import { IpcEvent } from '../../../shared/ipc'
+import { getUserDataPath, userDataFile } from '../../os'
 import {
   existsSync,
   mkdirSync,
@@ -6,7 +9,6 @@ import {
   renameSync,
   writeFileSync
 } from 'fs'
-import { join } from 'path'
 import { randomUUID } from 'crypto'
 import type {
   JsonDiffSnapshotInput,
@@ -21,12 +23,12 @@ let snapshots: TextSnapshot[] = []
 let snapshotsLoaded = false
 
 function filePath(): string {
-  return join(app.getPath('userData'), 'text-tool-snapshots.json')
+  return userDataFile('text-tool-snapshots.json')
 }
 
 function persist(): void {
   try {
-    const dir = app.getPath('userData')
+    const dir = getUserDataPath()
     if (!existsSync(dir)) mkdirSync(dir, { recursive: true })
     const target = filePath()
     const tmp = `${target}.tmp`
@@ -39,7 +41,7 @@ function persist(): void {
 
 function broadcast(): void {
   for (const w of BrowserWindow.getAllWindows()) {
-    if (!w.isDestroyed()) w.webContents.send('text-snapshots-updated', snapshots)
+    if (!w.isDestroyed()) sendEvent(w, IpcEvent.textSnapshotsUpdated, snapshots)
   }
 }
 

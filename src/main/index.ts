@@ -3,8 +3,7 @@ import {
   BrowserWindow,
   crashReporter,
   globalShortcut,
-  screen,
-  shell
+  screen
 } from 'electron'
 import { readFileSync, writeFileSync } from 'fs'
 import { join } from 'path'
@@ -18,9 +17,11 @@ import {
 } from './ipc'
 import { createTray, destroyTray } from './tray'
 import { initAutoUpdater } from './updater'
-import { setNotificationClickHandler } from './services/notifications'
+import { openExternal, setNotificationClickHandler, userDataFile } from './os'
 import { shutdownWorkbench } from './modules/workbench-ipc'
 import { DEFAULT_SETTINGS } from '../shared/defaults'
+import { IpcEvent } from '../shared/ipc'
+import { sendEvent } from './ipc-handle'
 import log from './logger'
 
 crashReporter.start({
@@ -41,7 +42,7 @@ process.on('unhandledRejection', (reason) => {
 let mainWindow: BrowserWindow | null = null
 let isQuitting = false
 
-const stateFilePath = join(app.getPath('userData'), 'window-state.json')
+const stateFilePath = userDataFile('window-state.json')
 
 function loadWindowState(): {
   x?: number
@@ -151,7 +152,7 @@ function createWindow(): void {
 
   const sendFullScreen = (isFullScreen: boolean): void => {
     if (mainWindow && !mainWindow.isDestroyed()) {
-      mainWindow.webContents.send('window-full-screen-changed', isFullScreen)
+      sendEvent(mainWindow, IpcEvent.windowFullScreenChanged, isFullScreen)
     }
   }
   mainWindow.on('enter-full-screen', () => sendFullScreen(true))
@@ -166,7 +167,7 @@ function createWindow(): void {
   })
 
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
-    shell.openExternal(url)
+    void openExternal(url)
     return { action: 'deny' }
   })
 
@@ -201,7 +202,7 @@ function registerGlobalShortcuts(): void {
       showMainWindow()
       const { webContents } = mainWindow
       if (!webContents.isLoading() && !webContents.isCrashed()) {
-        webContents.send('focus-search')
+        sendEvent(webContents, IpcEvent.focusSearch)
       }
     }
   }

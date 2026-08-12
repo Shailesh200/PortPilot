@@ -1,4 +1,12 @@
-import { clipboard, BrowserWindow, app } from 'electron'
+import { BrowserWindow } from 'electron'
+import { sendEvent } from '../../ipc-handle'
+import { IpcEvent } from '../../../shared/ipc'
+import {
+  getUserDataPath,
+  userDataFile,
+  readClipboardText,
+  writeClipboardText as writeOsClipboard
+} from '../../os'
 import {
   existsSync,
   readFileSync,
@@ -6,7 +14,6 @@ import {
   renameSync,
   mkdirSync
 } from 'fs'
-import { join } from 'path'
 import type { ClipboardItem, ClipboardKind } from '../../../shared/types'
 
 const MAX_ITEMS = 200
@@ -17,7 +24,7 @@ let timer: ReturnType<typeof setInterval> | null = null
 let captureEnabled = false
 
 function filePath(): string {
-  return join(app.getPath('userData'), 'clipboard-history.json')
+  return userDataFile('clipboard-history.json')
 }
 
 function classify(text: string): ClipboardKind {
@@ -42,7 +49,7 @@ function classify(text: string): ClipboardKind {
 
 function persist(): void {
   try {
-    const dir = app.getPath('userData')
+    const dir = getUserDataPath()
     if (!existsSync(dir)) mkdirSync(dir, { recursive: true })
     const target = filePath()
     const tmp = `${target}.tmp`
@@ -55,7 +62,7 @@ function persist(): void {
 
 function broadcast(): void {
   for (const w of BrowserWindow.getAllWindows()) {
-    if (!w.isDestroyed()) w.webContents.send('clipboard-updated', history)
+    if (!w.isDestroyed()) sendEvent(w, IpcEvent.clipboardUpdated, history)
   }
 }
 
@@ -112,14 +119,14 @@ export function clearClipboardHistory(keepPinned: boolean): ClipboardItem[] {
 }
 
 export function writeClipboardText(text: string): void {
-  clipboard.writeText(text)
+  writeOsClipboard(text)
   lastText = text
 }
 
 function poll(): void {
   if (!captureEnabled) return
   try {
-    const text = clipboard.readText()
+    const text = readClipboardText()
     if (!text || text === lastText) return
     lastText = text
     if (text.length > 100_000) return
@@ -146,7 +153,7 @@ function poll(): void {
 
 export function startClipboardWatch(): void {
   if (timer) return
-  lastText = clipboard.readText()
+  lastText = readClipboardText()
   timer = setInterval(poll, 800)
 }
 

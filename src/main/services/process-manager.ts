@@ -3,7 +3,7 @@ import { promisify } from 'util'
 import { writeFileSync, unlinkSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
-import { shell } from 'electron'
+import { openExternal } from '../os/shell'
 import type { ProcessDetails } from '../../shared/types'
 
 const execFileAsync = promisify(execFile)
@@ -141,7 +141,7 @@ export async function killProcesses(
 
 export function openInBrowser(port: number): void {
   if (!Number.isInteger(port) || port <= 0 || port > 65535) return
-  shell.openExternal(`http://localhost:${port}`)
+  void openExternal(`http://localhost:${port}`)
 }
 
 async function resolveProcessCwd(pid: number): Promise<string> {
@@ -441,7 +441,7 @@ async function openWarpTabAtDirectory(dir: string): Promise<boolean> {
   }
 
   try {
-    await shell.openExternal(uris[0])
+    await openExternal(uris[0])
     return true
   } catch {
     /* fall through */

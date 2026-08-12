@@ -1,4 +1,6 @@
-import { ipcMain, dialog, BrowserWindow } from 'electron'
+import { BrowserWindow } from 'electron'
+import { handleInvoke } from '../ipc-handle'
+import { showOpenDialog, showSaveDialog } from '../os'
 import { writeFileSync } from 'fs'
 import { basename, extname } from 'path'
 import {
@@ -26,7 +28,7 @@ import type {
   TextDiffSnapshotInput,
   TextSnapshotTool
 } from '../../shared/types'
-import { IpcChannel, IpcEvent } from '../../shared/ipc'
+import { IpcChannel } from '../../shared/ipc'
 
 export function registerWorkbenchIpc(): void {
   // Defer disk reads so cold start isn't blocked on workbench JSON.
@@ -42,54 +44,54 @@ export function registerWorkbenchIpc(): void {
   setTimeout(hydrate, 0)
 
   // —— Clipboard ——
-  ipcMain.handle(IpcChannel.clipboardGetHistory, () => {
+  handleInvoke(IpcChannel.clipboardGetHistory, () => {
     loadClipboardHistory()
     return getClipboardHistory()
   })
-  ipcMain.handle(IpcChannel.clipboardSetCapture, (_e, enabled: boolean) => {
+  handleInvoke(IpcChannel.clipboardSetCapture, (_e, enabled: boolean) => {
     setClipboardCapture(Boolean(enabled))
     return isClipboardCaptureEnabled()
   })
-  ipcMain.handle(IpcChannel.clipboardIsCaptureEnabled, () => isClipboardCaptureEnabled())
-  ipcMain.handle(IpcChannel.clipboardPin, (_e, id: string, pinned: boolean) =>
+  handleInvoke(IpcChannel.clipboardIsCaptureEnabled, () => isClipboardCaptureEnabled())
+  handleInvoke(IpcChannel.clipboardPin, (_e, id: string, pinned: boolean) =>
     pinClipboardItem(String(id), Boolean(pinned))
   )
-  ipcMain.handle(IpcChannel.clipboardDelete, (_e, id: string) =>
+  handleInvoke(IpcChannel.clipboardDelete, (_e, id: string) =>
     deleteClipboardItem(String(id))
   )
-  ipcMain.handle(IpcChannel.clipboardClear, (_e, keepPinned: boolean) =>
+  handleInvoke(IpcChannel.clipboardClear, (_e, keepPinned: boolean) =>
     clearClipboardHistory(Boolean(keepPinned))
   )
-  ipcMain.handle(IpcChannel.clipboardWrite, (_e, text: string) => {
+  handleInvoke(IpcChannel.clipboardWrite, (_e, text: string) => {
     writeClipboardText(String(text ?? ''))
   })
 
   // —— Database ——
-  ipcMain.handle(IpcChannel.dbListConnections, () => {
+  handleInvoke(IpcChannel.dbListConnections, () => {
     db.loadDbStore()
     return db.listConnections()
   })
-  ipcMain.handle(IpcChannel.dbListLive, () => db.listLiveConnectionIds())
-  ipcMain.handle(IpcChannel.dbSaveConnection, (_e, profile: unknown) => {
+  handleInvoke(IpcChannel.dbListLive, () => db.listLiveConnectionIds())
+  handleInvoke(IpcChannel.dbSaveConnection, (_e, profile: unknown) => {
     db.saveConnection(profile as Parameters<typeof db.saveConnection>[0])
     return db.listConnections()
   })
-  ipcMain.handle(IpcChannel.dbDeleteConnection, (_e, id: string) => {
+  handleInvoke(IpcChannel.dbDeleteConnection, (_e, id: string) => {
     db.deleteConnection(String(id))
     return db.listConnections()
   })
-  ipcMain.handle(IpcChannel.dbConnect, (_e, id: string) => db.connect(String(id)))
-  ipcMain.handle(IpcChannel.dbDisconnect, (_e, id: string) => db.disconnect(String(id)))
-  ipcMain.handle(
+  handleInvoke(IpcChannel.dbConnect, (_e, id: string) => db.connect(String(id)))
+  handleInvoke(IpcChannel.dbDisconnect, (_e, id: string) => db.disconnect(String(id)))
+  handleInvoke(
     IpcChannel.dbQuery,
     (_e, id: string, sql: string, opts?: { allowDestructive?: boolean }) =>
       db.runQuery(String(id), String(sql), opts)
   )
-  ipcMain.handle(IpcChannel.dbTables, (_e, id: string) => db.listTables(String(id)))
-  ipcMain.handle(IpcChannel.dbTableSchema, (_e, id: string, table: string) =>
+  handleInvoke(IpcChannel.dbTables, (_e, id: string) => db.listTables(String(id)))
+  handleInvoke(IpcChannel.dbTableSchema, (_e, id: string, table: string) =>
     db.getTableSchema(String(id), String(table))
   )
-  ipcMain.handle(
+  handleInvoke(
     IpcChannel.dbBrowseTable,
     (
       _e,
@@ -98,27 +100,27 @@ export function registerWorkbenchIpc(): void {
       opts: { where?: string; limit?: number; offset?: number }
     ) => db.browseTable(String(id), String(table), opts || {})
   )
-  ipcMain.handle(IpcChannel.dbAnalyzeSql, (_e, sql: string) =>
+  handleInvoke(IpcChannel.dbAnalyzeSql, (_e, sql: string) =>
     db.analyzeSql(String(sql))
   )
-  ipcMain.handle(
+  handleInvoke(
     IpcChannel.dbExplain,
     (_e, id: string, sql: string, analyze?: boolean) =>
       db.explainQuery(String(id), String(sql), !!analyze)
   )
-  ipcMain.handle(IpcChannel.dbSavedQueries, (_e, id?: string) =>
+  handleInvoke(IpcChannel.dbSavedQueries, (_e, id?: string) =>
     db.listSavedQueries(id ? String(id) : undefined)
   )
-  ipcMain.handle(IpcChannel.dbSaveQuery, (_e, input: unknown) =>
+  handleInvoke(IpcChannel.dbSaveQuery, (_e, input: unknown) =>
     db.saveSavedQuery(input as Parameters<typeof db.saveSavedQuery>[0])
   )
-  ipcMain.handle(IpcChannel.dbDeleteSavedQuery, (_e, id: string) =>
+  handleInvoke(IpcChannel.dbDeleteSavedQuery, (_e, id: string) =>
     db.deleteSavedQuery(String(id))
   )
-  ipcMain.handle(IpcChannel.dbTableDdl, (_e, id: string, table: string) =>
+  handleInvoke(IpcChannel.dbTableDdl, (_e, id: string, table: string) =>
     db.getTableDdl(String(id), String(table))
   )
-  ipcMain.handle(
+  handleInvoke(
     IpcChannel.dbUpdateCell,
     (
       _e,
@@ -132,7 +134,7 @@ export function registerWorkbenchIpc(): void {
       }
     ) => db.updateTableCell(String(id), input)
   )
-  ipcMain.handle(
+  handleInvoke(
     IpcChannel.dbInsertRow,
     (
       _e,
@@ -140,7 +142,7 @@ export function registerWorkbenchIpc(): void {
       input: { table: string; columns: string[]; values: unknown[] }
     ) => db.insertTableRow(String(id), input)
   )
-  ipcMain.handle(
+  handleInvoke(
     IpcChannel.dbImportCsv,
     (
       _e,
@@ -153,32 +155,30 @@ export function registerWorkbenchIpc(): void {
       }
     ) => db.importCsv(String(id), input)
   )
-  ipcMain.handle(
+  handleInvoke(
     IpcChannel.dbRedisKeys,
     (_e, id: string, opts?: { pattern?: string; count?: number }) =>
       db.browseRedisKeys(String(id), opts || {})
   )
-  ipcMain.handle(IpcChannel.dbRedisKey, (_e, id: string, key: string) =>
+  handleInvoke(IpcChannel.dbRedisKey, (_e, id: string, key: string) =>
     db.getRedisKey(String(id), String(key))
   )
-  ipcMain.handle(IpcChannel.dbHistory, (_e, id?: string) =>
+  handleInvoke(IpcChannel.dbHistory, (_e, id?: string) =>
     db.getQueryHistory(id ? String(id) : undefined)
   )
-  ipcMain.handle(IpcChannel.dbAccessInfo, (_e, id: string) =>
+  handleInvoke(IpcChannel.dbAccessInfo, (_e, id: string) =>
     db.getAccessInfo(String(id))
   )
-  ipcMain.handle(IpcChannel.dbPickSqliteFile, async () => {
-    const win = BrowserWindow.getFocusedWindow()
-    const r = await dialog.showOpenDialog(win!, {
+  handleInvoke(IpcChannel.dbPickSqliteFile, async () => {
+    const r = await showOpenDialog({
       properties: ['openFile', 'promptToCreate'],
       filters: [{ name: 'SQLite', extensions: ['db', 'sqlite', 'sqlite3'] }]
     })
     if (r.canceled || !r.filePaths[0]) return null
     return r.filePaths[0]
   })
-  ipcMain.handle(IpcChannel.dbPickSshKey, async () => {
-    const win = BrowserWindow.getFocusedWindow()
-    const r = await dialog.showOpenDialog(win!, {
+  handleInvoke(IpcChannel.dbPickSshKey, async () => {
+    const r = await showOpenDialog({
       properties: ['openFile'],
       defaultPath: `${process.env.HOME || ''}/.ssh`
     })
@@ -187,11 +187,11 @@ export function registerWorkbenchIpc(): void {
   })
 
   // —— Text tool snapshots ——
-  ipcMain.handle(IpcChannel.textSnapshotsList, (_e, tool?: TextSnapshotTool) => {
+  handleInvoke(IpcChannel.textSnapshotsList, (_e, tool?: TextSnapshotTool) => {
     loadTextSnapshots()
     return listTextSnapshots(tool)
   })
-  ipcMain.handle(
+  handleInvoke(
     IpcChannel.textSnapshotsSave,
     (
       _e,
@@ -201,17 +201,17 @@ export function registerWorkbenchIpc(): void {
         | TextDiffSnapshotInput
     ) => saveTextSnapshot(input)
   )
-  ipcMain.handle(
+  handleInvoke(
     IpcChannel.textSnapshotsUpdateLabel,
     (_e, id: string, label: string) =>
       updateTextSnapshotLabel(String(id), String(label ?? ''))
   )
-  ipcMain.handle(IpcChannel.textSnapshotsDelete, (_e, id: string) =>
+  handleInvoke(IpcChannel.textSnapshotsDelete, (_e, id: string) =>
     deleteTextSnapshot(String(id))
   )
 
   // —— Save text file (Format Converter, etc.) ——
-  ipcMain.handle(
+  handleInvoke(
     IpcChannel.saveTextFile,
     async (
       _e,
@@ -222,7 +222,6 @@ export function registerWorkbenchIpc(): void {
         filters?: { name: string; extensions: string[] }[]
       }
     ) => {
-      const win = BrowserWindow.getFocusedWindow()
       const defaultName =
         typeof payload?.defaultName === 'string' && payload.defaultName.trim()
           ? payload.defaultName.trim()
@@ -238,7 +237,7 @@ export function registerWorkbenchIpc(): void {
               { name: 'All Files', extensions: ['*'] }
             ]
 
-      const r = await dialog.showSaveDialog(win!, {
+      const r = await showSaveDialog({
         defaultPath: defaultName,
         filters
       })
@@ -297,7 +296,7 @@ export function registerWorkbenchIpc(): void {
     }
   }
 
-  ipcMain.handle(
+  handleInvoke(
     IpcChannel.saveHtmlAsPdf,
     async (
       _e,
@@ -327,13 +326,12 @@ export function registerWorkbenchIpc(): void {
         }
       }
 
-      const parent = BrowserWindow.getFocusedWindow()
       const defaultName =
         typeof payload?.defaultName === 'string' && payload.defaultName.trim()
           ? payload.defaultName.trim()
           : 'converted.pdf'
 
-      const r = await dialog.showSaveDialog(parent!, {
+      const r = await showSaveDialog({
         defaultPath: defaultName,
         filters: [
           { name: 'PDF', extensions: ['pdf'] },

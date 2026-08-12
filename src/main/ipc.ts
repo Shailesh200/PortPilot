@@ -1,8 +1,8 @@
-import { ipcMain, BrowserWindow, globalShortcut, app } from 'electron'
+import { BrowserWindow, globalShortcut } from 'electron'
 import log from './logger'
 import { loadProfilesState, saveProfilesState } from './profiles-persistence'
-import { scanPorts } from './os'
 import {
+  scanPorts,
   getProcessDetails,
   killProcess,
   killProcesses,
@@ -10,7 +10,8 @@ import {
   openInTerminal,
   openInVSCode,
   restartProcess,
-  setAutoFocusTerminal
+  setAutoFocusTerminal,
+  getAppVersion
 } from './os'
 import { markExpectedStopsForPid } from './services/expected-stops'
 import {
@@ -20,6 +21,7 @@ import {
 import type { PortInfo, ProfilesPersistState, Profile } from '../shared/types'
 import { registerWorkbenchIpc } from './modules/workbench-ipc'
 import { IpcChannel, IpcEvent } from '../shared/ipc'
+import { handleInvoke, sendEvent } from './ipc-handle'
 
 function markStopsForPid(pid: number): void {
   markExpectedStopsForPid(pid, lastPorts)
@@ -28,7 +30,7 @@ function markStopsForPid(pid: number): void {
 export function notifyProfilesChanged(): void {
   for (const w of BrowserWindow.getAllWindows()) {
     try {
-      if (!w.isDestroyed()) w.webContents.send(IpcEvent.profilesChanged)
+      sendEvent(w, IpcEvent.profilesChanged)
     } catch {
       /* ignore */
     }
@@ -128,17 +130,17 @@ export function isProtectedPid(pid: number): boolean {
 }
 
 export function registerIpcHandlers(): void {
-  ipcMain.handle(IpcChannel.getPorts, async () => {
+  handleInvoke(IpcChannel.getPorts, async () => {
     lastPorts = await scanPorts()
     return lastPorts
   })
 
-  ipcMain.handle(IpcChannel.getProcessDetails, async (_event, pid: number) => {
+  handleInvoke(IpcChannel.getProcessDetails, async (_event, pid) => {
     if (!validatePid(pid)) return null
     return getProcessDetails(pid)
   })
 
-  ipcMain.handle(IpcChannel.killProcess, async (_event, pid: number, force?: boolean) => {
+  handleInvoke(IpcChannel.killProcess, async (_event, pid, force) => {
     if (!validatePid(pid)) return false
     if (isProtectedPid(pid)) {
       log.warn(`Refused to kill protected system process pid=${pid}`)
@@ -148,64 +150,75 @@ export function registerIpcHandlers(): void {
     return killProcess(pid, force)
   })
 
-  ipcMain.handle(IpcChannel.killProcesses, async (_event, pids: number[]) => {
+  handleInvoke(IpcChannel.killProcesses, async (_event, pids) => {
     if (!Array.isArray(pids) || !pids.every(validatePid)) return []
     const allowed = pids.filter((pid) => !isProtectedPid(pid))
     for (const pid of allowed) markStopsForPid(pid)
     return killProcesses(allowed)
   })
 
-  ipcMain.handle(IpcChannel.openInBrowser, async (_event, port: number) => {
+  handleInvoke(IpcChannel.openInBrowser, async (_event, port) => {
     if (!validatePort(port)) return
     openInBrowser(port)
   })
 
-  ipcMain.handle(IpcChannel.openInTerminal, async (_event, pid: number, projectPath?: string) => {
-    if (!validatePid(pid)) return
-    return openInTerminal(pid, typeof projectPath === 'string' ? projectPath : undefined)
+  handleInvoke(IpcChannel.openInTerminal, async (_event, pid, projectPath) => {
+    if (!validatePid(pid)) {
+      return {
+        ok: false,
+        method: 'failed' as const,
+        app: '',
+        message: 'Invalid PID'
+      }
+    }
+    return openInTerminal(
+      pid,
+      typeof projectPath === 'string' ? projectPath : undefined
+    )
   })
 
-  ipcMain.handle(IpcChannel.openInVscode, async (_event, pid: number, projectPath?: string) => {
+  handleInvoke(IpcChannel.openInVscode, async (_event, pid, projectPath) => {
     if (!validatePid(pid)) return
-    return openInVSCode(pid, typeof projectPath === 'string' ? projectPath : undefined)
+    return openInVSCode(
+      pid,
+      typeof projectPath === 'string' ? projectPath : undefined
+    )
   })
 
-  ipcMain.handle(IpcChannel.restartProcess, async (_event, pid: number, projectPath?: string) => {
+  handleInvoke(IpcChannel.restartProcess, async (_event, pid, projectPath) => {
     if (!validatePid(pid)) return { success: false, error: 'Invalid PID' }
     if (isProtectedPid(pid)) {
       log.warn(`Refused to restart protected system process pid=${pid}`)
       return { success: false, error: 'This is a protected system process.' }
     }
     markStopsForPid(pid)
-    return restartProcess(pid, typeof projectPath === 'string' ? projectPath : undefined)
+    return restartProcess(
+      pid,
+      typeof projectPath === 'string' ? projectPath : undefined
+    )
   })
 
-  ipcMain.handle(IpcChannel.updateAlertSettings, async (_event, settings: unknown) => {
+  handleInvoke(IpcChannel.updateAlertSettings, async (_event, settings) => {
     if (!settings || typeof settings !== 'object') return
-    const s = settings as Partial<{
-      notifyPortChange: boolean
-      notifyCrash: boolean
-      autoOpenBrowser: boolean
-    }>
-    updateAlertSettings(s)
+    updateAlertSettings(settings)
   })
 
-  ipcMain.handle(IpcChannel.updatePollInterval, async (_event, intervalMs: number) => {
+  handleInvoke(IpcChannel.updatePollInterval, async (_event, intervalMs) => {
     // NaN slips past a plain `< 1000` comparison and would busy-loop the poller
     if (typeof intervalMs !== 'number' || !Number.isFinite(intervalMs)) return
     currentIntervalMs = Math.min(30000, Math.max(1000, Math.round(intervalMs)))
   })
 
-  ipcMain.handle(IpcChannel.updateGlobalShortcut, async (_event, shortcut: string) => {
+  handleInvoke(IpcChannel.updateGlobalShortcut, async (_event, shortcut) => {
     if (typeof shortcut !== 'string' || shortcut.length === 0 || shortcut.length > 100) {
       return false
     }
     return updateGlobalShortcut(shortcut)
   })
 
-  ipcMain.handle(IpcChannel.updateSafetySettings, async (_event, settings: unknown) => {
+  handleInvoke(IpcChannel.updateSafetySettings, async (_event, settings) => {
     if (!settings || typeof settings !== 'object') return
-    const s = settings as Partial<SafetySettings>
+    const s = settings
     safetySettings = {
       protectSystemPorts:
         typeof s.protectSystemPorts === 'boolean'
@@ -223,30 +236,30 @@ export function registerIpcHandlers(): void {
     setAutoFocusTerminal(safetySettings.autoFocusTerminal)
   })
 
-  ipcMain.handle(IpcChannel.getAppVersion, async () => app.getVersion())
+  handleInvoke(IpcChannel.getAppVersion, async () => getAppVersion())
 
-  ipcMain.handle(IpcChannel.windowIsFullScreen, (event) => {
+  handleInvoke(IpcChannel.windowIsFullScreen, (event) => {
     const win = BrowserWindow.fromWebContents(event.sender)
     return win ? win.isFullScreen() : false
   })
 
-  ipcMain.handle(IpcChannel.windowSetFullScreen, (event, flag: unknown) => {
+  handleInvoke(IpcChannel.windowSetFullScreen, (event, flag) => {
     const win = BrowserWindow.fromWebContents(event.sender)
     if (!win) return false
     win.setFullScreen(Boolean(flag))
     return win.isFullScreen()
   })
 
-  ipcMain.handle(IpcChannel.windowToggleFullScreen, (event) => {
+  handleInvoke(IpcChannel.windowToggleFullScreen, (event) => {
     const win = BrowserWindow.fromWebContents(event.sender)
     if (!win) return false
     win.setFullScreen(!win.isFullScreen())
     return win.isFullScreen()
   })
 
-  ipcMain.handle(IpcChannel.loadProfiles, async () => loadProfilesState())
+  handleInvoke(IpcChannel.loadProfiles, async () => loadProfilesState())
 
-  ipcMain.handle(IpcChannel.saveProfiles, async (_event, state: unknown) => {
+  handleInvoke(IpcChannel.saveProfiles, async (_event, state) => {
     if (!state || typeof state !== 'object') return false
     const s = state as Partial<ProfilesPersistState>
     if (!Array.isArray(s.profiles)) return false
@@ -282,7 +295,7 @@ export function startPortPolling(window: BrowserWindow, intervalMs = 3000): void
   // up to a full (hidden) poll cycle.
   window.on('show', () => {
     if (!window.isDestroyed()) {
-      window.webContents.send(IpcEvent.portsUpdated, lastPorts)
+      sendEvent(window, IpcEvent.portsUpdated, lastPorts)
     }
   })
 
@@ -320,7 +333,7 @@ export function startPortPolling(window: BrowserWindow, intervalMs = 3000): void
       processPortAlerts(window.isDestroyed() ? null : window, ports)
       if (!unchanged) {
         if (visible && !window.isDestroyed()) {
-          window.webContents.send(IpcEvent.portsUpdated, ports)
+          sendEvent(window, IpcEvent.portsUpdated, ports)
         }
         for (const listener of portChangeListeners) {
           try {

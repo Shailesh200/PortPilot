@@ -1,16 +1,17 @@
-import { app, nativeImage } from 'electron'
 import { existsSync } from 'fs'
 import { join } from 'path'
+import { nativeImage } from 'electron'
+import { getAppPath, isAppPackaged } from './paths'
 
 /** Resolve a file under the packaged `extraResources` tree or dev `resources/`. */
 export function resolveResourcePath(...segments: string[]): string {
   const candidates: string[] = []
-  if (app.isPackaged) {
+  if (isAppPackaged()) {
     candidates.push(join(process.resourcesPath, 'resources', ...segments))
     candidates.push(join(process.resourcesPath, ...segments))
   }
   candidates.push(join(__dirname, '../../resources', ...segments))
-  candidates.push(join(app.getAppPath(), 'resources', ...segments))
+  candidates.push(join(getAppPath(), 'resources', ...segments))
   for (const p of candidates) {
     if (existsSync(p)) return p
   }

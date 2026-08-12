@@ -14,4 +14,35 @@ export {
   restartProcess,
   setAutoFocusTerminal
 } from '../services/process-manager'
-export { resolveResourcePath, resolveTrayIconPath } from './resources'
+export {
+  resolveResourcePath,
+  resolveTrayIconPath,
+  loadTrayNativeImage
+} from './resources'
+export {
+  getUserDataPath,
+  userDataFile,
+  getAppVersion,
+  isAppPackaged,
+  getAppPath
+} from './paths'
+export {
+  isSecureStorageAvailable,
+  encryptSecret,
+  decryptSecret
+} from './secure-store'
+export { readClipboardText, writeClipboardText } from './clipboard'
+export { openExternal } from './shell'
+export {
+  showOpenDialog,
+  showSaveDialog,
+  showMessageBox,
+  type FileFilter,
+  type OpenDialogOptions,
+  type SaveDialogOptions,
+  type MessageBoxOptions
+} from './dialogs'
+export {
+  setNotificationClickHandler,
+  showNativeNotification
+} from './notifications'

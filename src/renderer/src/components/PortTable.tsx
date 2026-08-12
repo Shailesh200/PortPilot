@@ -669,6 +669,8 @@ function TableHeader({
 }
 
 export function PortTable() {
+  const ports = usePortStore((s) => s.ports)
+  const searchQuery = usePortStore((s) => s.searchQuery)
   const filteredPorts = usePortStore((s) => s.filteredPorts)
   const sortBy = usePortStore((s) => s.sortBy)
   const sortDirection = usePortStore((s) => s.sortDirection)
@@ -832,12 +834,31 @@ export function PortTable() {
                 <td colSpan={10} className="text-center py-16">
                   <div className="flex flex-col items-center gap-3">
                     <AlertTriangle className="w-8 h-8 text-text-muted" />
-                    <p className="text-sm text-text-muted">
-                      No listening ports found
-                    </p>
-                    <p className="text-xs text-text-muted">
-                      Start a development server to see active ports
-                    </p>
+                    {ports.length === 0 ? (
+                      <>
+                        <p className="text-sm text-text-muted">
+                          No listening ports found
+                        </p>
+                        <p className="text-xs text-text-muted max-w-sm">
+                          Start a development server (for example{' '}
+                          <span className="font-mono text-text-secondary">
+                            npm run dev
+                          </span>
+                          ) and it will show up here.
+                        </p>
+                      </>
+                    ) : (
+                      <>
+                        <p className="text-sm text-text-muted">
+                          No ports match your filters
+                        </p>
+                        <p className="text-xs text-text-muted max-w-sm">
+                          {searchQuery.trim()
+                            ? `Nothing matches “${searchQuery.trim()}”. Clear search or adjust the active profile.`
+                            : 'Clear search or switch / clear the active profile to see all ports.'}
+                        </p>
+                      </>
+                    )}
                   </div>
                 </td>
               </tr>

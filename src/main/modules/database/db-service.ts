@@ -5,9 +5,13 @@ import {
   renameSync,
   mkdirSync
 } from 'fs'
-import { join } from 'path'
 import { randomUUID } from 'crypto'
-import { app, safeStorage } from 'electron'
+import {
+  decryptSecret,
+  encryptSecret,
+  getUserDataPath,
+  userDataFile
+} from '../../os'
 import postgres from 'postgres'
 import mysql from 'mysql2/promise'
 import { createClient, type RedisClientType } from 'redis'
@@ -50,12 +54,12 @@ const live = new Map<string, unknown>()
 const tunnels = new Map<string, { close: () => void; localPort: number }>()
 
 function storePath(): string {
-  return join(app.getPath('userData'), 'db-connections.json')
+  return userDataFile('db-connections.json')
 }
 
 function persist(): void {
   try {
-    const dir = app.getPath('userData')
+    const dir = getUserDataPath()
     if (!existsSync(dir)) mkdirSync(dir, { recursive: true })
     const target = storePath()
     const tmp = `${target}.tmp`
@@ -80,28 +84,6 @@ export function loadDbStore(): StoreFile {
     store = { connections: [], history: [], savedQueries: [] }
   }
   return store
-}
-
-function encryptSecret(plain: string): string {
-  if (!plain) return ''
-  if (!safeStorage.isEncryptionAvailable()) {
-    throw new Error(
-      'OS secure storage is unavailable. Passwords cannot be saved on this system.'
-    )
-  }
-  return safeStorage.encryptString(plain).toString('base64')
-}
-
-function decryptSecret(enc?: string): string {
-  if (!enc) return ''
-  // Legacy plaintext fallback from older builds — read only, never write back.
-  if (enc.startsWith('plain:')) {
-    return Buffer.from(enc.slice(6), 'base64').toString('utf-8')
-  }
-  if (safeStorage.isEncryptionAvailable()) {
-    return safeStorage.decryptString(Buffer.from(enc, 'base64'))
-  }
-  return ''
 }
 
 export function listConnections(): DbConnectionPublic[] {

@@ -1,37 +1,11 @@
-import { Notification, BrowserWindow } from 'electron'
-import log from '../logger'
+import { BrowserWindow } from 'electron'
+import { IpcEvent, type AppToastPayload } from '../../shared/ipc'
+import { sendEvent } from '../ipc-handle'
+import { showNativeNotification } from '../os/notifications'
 
-export interface AppToastPayload {
-  type: 'success' | 'error' | 'warning' | 'info'
-  title: string
-  message?: string
-}
+export type { AppToastPayload }
 
-let onNotificationClick: (() => void) | null = null
-
-export function setNotificationClickHandler(handler: () => void): void {
-  onNotificationClick = handler
-}
-
-export function showNativeNotification(title: string, body: string): void {
-  if (!Notification.isSupported()) {
-    log.warn('Native notifications are not supported on this platform')
-    return
-  }
-  try {
-    const notification = new Notification({
-      title,
-      body,
-      silent: false
-    })
-    notification.on('click', () => {
-      onNotificationClick?.()
-    })
-    notification.show()
-  } catch (err) {
-    log.warn('Failed to show native notification:', err)
-  }
-}
+export { setNotificationClickHandler } from '../os/notifications'
 
 /**
  * Foreground (visible + focused): in-app toast only.
@@ -52,7 +26,7 @@ export function deliverAlert(
 
   if (alive) {
     try {
-      window!.webContents.send('app-toast', toast)
+      sendEvent(window!, IpcEvent.appToast, toast)
     } catch {
       /* ignore */
     }

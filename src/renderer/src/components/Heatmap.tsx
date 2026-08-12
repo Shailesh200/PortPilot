@@ -63,6 +63,8 @@ const HeatCell = memo(function HeatCell({
 })
 
 export function Heatmap() {
+  const ports = usePortStore((s) => s.ports)
+  const searchQuery = usePortStore((s) => s.searchQuery)
   const filteredPorts = usePortStore((s) => s.filteredPorts)
   const selectedIndex = usePortStore((s) => s.selectedIndex)
   const isQuickPeekOpen = useUIStore((s) => s.isQuickPeekOpen)
@@ -98,8 +100,19 @@ export function Heatmap() {
 
       <div className="flex-1 overflow-auto">
         {filteredPorts.length === 0 ? (
-          <div className="flex items-center justify-center h-full text-text-muted text-sm">
-            No active ports to display
+          <div className="flex flex-col items-center justify-center h-full gap-2 text-center px-6">
+            <p className="text-sm text-text-muted">
+              {ports.length === 0
+                ? 'No active ports to display'
+                : 'No ports match your filters'}
+            </p>
+            <p className="text-xs text-text-muted max-w-sm">
+              {ports.length === 0
+                ? 'Listening processes will appear here once a server starts.'
+                : searchQuery.trim()
+                  ? `Nothing matches “${searchQuery.trim()}”. Clear search or adjust the active profile.`
+                  : 'Clear search or switch / clear the active profile to see all ports.'}
+            </p>
           </div>
         ) : (
           <div className="grid grid-cols-[repeat(auto-fill,minmax(140px,1fr))] gap-3">

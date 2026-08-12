@@ -5,6 +5,11 @@ import { useUIStore } from '../stores/uiStore'
 import type { AppSettings, Profile } from '../../../shared/types'
 import { DEFAULT_SETTINGS } from '../../../shared/defaults'
 import {
+  GLOBAL_SHORTCUT_OPTIONS,
+  formatAccelerator,
+  resolveAppShortcuts
+} from '../../../shared/shortcuts'
+import {
   Settings as SettingsIcon,
   Monitor,
   Keyboard,
@@ -215,12 +220,11 @@ function GeneralSettings() {
             }}
             className="bg-bg-elevated border border-border-strong rounded-md px-2.5 py-1 text-xs text-text-primary focus:outline-none focus:border-accent/50 cursor-pointer"
           >
-            <option value="CommandOrControl+Alt+P">⌘⌥P (default)</option>
-            <option value="CommandOrControl+Shift+Space">⌘⇧Space</option>
-            <option value="CommandOrControl+Shift+L">⌘⇧L</option>
-            <option value="CommandOrControl+Shift+P">
-              ⌘⇧P (conflicts with VS Code)
-            </option>
+            {GLOBAL_SHORTCUT_OPTIONS.map((opt) => (
+              <option key={opt.value} value={opt.value}>
+                {opt.label}
+              </option>
+            ))}
           </select>
         </div>
       </SettingRow>
@@ -314,63 +318,9 @@ function AppearanceSettings() {
   )
 }
 
-const defaultShortcuts = [
-  { id: 'global-launcher', label: 'Global Launcher', keys: '⌘ ⌥ P', category: 'Global' },
-  { id: 'command-palette', label: 'Command Palette', keys: '⌘ K', category: 'Global' },
-  { id: 'nav-ports', label: 'Go to Ports', keys: '⌘ 1', category: 'Navigation' },
-  { id: 'nav-text', label: 'Go to Text & Data', keys: '⌘ 2', category: 'Navigation' },
-  { id: 'nav-database', label: 'Go to Database', keys: '⌘ 3', category: 'Navigation' },
-  { id: 'nav-settings', label: 'Go to Settings', keys: '⌘ ,', category: 'Navigation' },
-  { id: 'search-focus', label: 'Focus Search', keys: '/', category: 'Search' },
-  { id: 'kill', label: 'Kill Selected Process', keys: 'K', category: 'Actions' },
-  { id: 'open-browser', label: 'Open in Browser', keys: 'O', category: 'Actions' },
-  { id: 'open-terminal', label: 'Open Terminal', keys: 'T', category: 'Actions' },
-  { id: 'open-vscode', label: 'Open in VS Code', keys: 'V', category: 'Actions' },
-  {
-    id: 'quick-peek',
-    label: 'Quick Peek',
-    keys: 'Space (global) · ↵ on focused row',
-    category: 'Actions'
-  },
-  { id: 'navigate-up', label: 'Move Up', keys: '↑', category: 'Table' },
-  { id: 'navigate-down', label: 'Move Down', keys: '↓', category: 'Table' },
-  { id: 'expand-row', label: 'Expand Row', keys: '→', category: 'Table' },
-  { id: 'close-modal', label: 'Close / Dismiss', keys: 'Esc', category: 'General' }
-]
-
-/** Electron accelerator → display chips, e.g. CommandOrControl+Alt+P → "⌘ ⌥ P". */
-function formatAccelerator(accelerator: string): string {
-  const keyMap: Record<string, string> = {
-    CommandOrControl: '⌘',
-    CmdOrCtrl: '⌘',
-    Command: '⌘',
-    Control: '⌃',
-    Ctrl: '⌃',
-    Alt: '⌥',
-    Option: '⌥',
-    Shift: '⇧',
-    Super: '⌘',
-    Meta: '⌘',
-    Plus: '+',
-    Space: 'Space',
-    Return: '↵',
-    Enter: '↵',
-    Escape: 'Esc',
-    Esc: 'Esc'
-  }
-  return accelerator
-    .split('+')
-    .map((part) => keyMap[part] ?? part)
-    .join(' ')
-}
-
 function ShortcutsSettings() {
   const globalShortcut = useSettingsStore((s) => s.globalShortcut)
-  const shortcuts = defaultShortcuts.map((s) =>
-    s.id === 'global-launcher'
-      ? { ...s, keys: formatAccelerator(globalShortcut) }
-      : s
-  )
+  const shortcuts = resolveAppShortcuts(globalShortcut)
   const categories = [...new Set(shortcuts.map((s) => s.category))]
 
   return (
@@ -389,9 +339,18 @@ function ShortcutsSettings() {
                   {shortcut.label}
                 </span>
                 <div className="flex items-center gap-1">
-                  {shortcut.keys.split(' ').map((key, i) => (
-                    <span key={i} className="kbd text-[10px]">
-                      {key}
+                  {shortcut.keys.split(/\s*·\s*/).map((group, gi) => (
+                    <span key={gi} className="flex items-center gap-1">
+                      {gi > 0 && (
+                        <span className="text-[10px] text-text-muted px-0.5">
+                          ·
+                        </span>
+                      )}
+                      {group.split(/\s+/).map((key, i) => (
+                        <span key={`${gi}-${i}`} className="kbd text-[10px]">
+                          {key}
+                        </span>
+                      ))}
                     </span>
                   ))}
                 </div>

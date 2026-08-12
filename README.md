@@ -16,14 +16,13 @@ A desktop utility for developers to monitor local ports and processes, and to wo
 - **Global Launcher** (`Cmd + Option + P` by default) -- summon PortPilot from anywhere on your system
 - **Menu Bar Tray** -- quick access to active ports from the macOS menu bar
 - **Batch Actions** -- select multiple ports and kill/restart them all at once
-- **Tagging & Grouping** -- tag ports and group by project, process type, or resource usage
-- **Profiles** -- save and switch between port configurations, filters, and auto-actions
-- **Notifications** -- get alerted on port changes, high CPU/memory, and crashes
+- **Tagging & Grouping** -- tag ports and group by project
+- **Profiles** -- save and switch between port favorites, filters, and preferences
+- **Notifications** -- alerts when ports start/stop (including unexpected disappearances) and for high CPU/memory
 - **Session Restore** -- picks up where you left off across Ports, Text, Database, and Settings
-- **Activity Log** -- track every action (kills, restarts, opens) with timestamps
-- **Keyboard-first** -- extensive shortcuts for every action
+- **Keyboard-first** -- shortcuts listed in Settings → Shortcuts (source: `src/shared/shortcuts.ts`)
 - **Themes** -- light and dark mode with system preference detection
-- **Auto-updater** -- get notified of new versions automatically
+- **Update checks** -- in-app notice when a new release is available (macOS unsigned builds may still need a manual download)
 
 ## Download
 
@@ -56,6 +55,8 @@ codesign --force --deep --sign - /Applications/PortPilot.app
 3. If Windows Defender SmartScreen shows a warning, click **More info** then **Run anyway**
 
 ## Keyboard Shortcuts
+
+Keep this table in sync with `src/shared/shortcuts.ts` (also shown under **Settings → Shortcuts**).
 
 | Shortcut | Action |
 |----------|--------|
