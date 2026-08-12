@@ -88,16 +88,26 @@ jobs:
       - uses: oven-sh/setup-bun@v2
 
       - name: Install dependencies
-        run: bun install --frozen-lockfile=false
+        run: bun install
 
       - name: Typecheck
         run: bun run typecheck
 
       - name: Build app
         shell: bash
+        env:
+          NODE_OPTIONS: --max-old-space-size=8192
         run: |
           rm -rf out
-          bun run build
+          bun run build 2>&1 | tee win-build.log
+          exit ${PIPESTATUS[0]}
+
+      - name: Upload Windows build log
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: win-build-log
+          path: win-build.log
 
       - name: Build and publish Windows artifacts
         run: bunx electron-builder --win --publish always
