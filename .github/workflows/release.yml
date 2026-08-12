@@ -83,21 +83,23 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-          cache: npm
+
+      # Bun has been the reliable Windows packaging path for this repo.
+      - uses: oven-sh/setup-bun@v2
 
       - name: Install dependencies
-        run: npm ci
+        run: bun install --frozen-lockfile=false
 
       - name: Typecheck
-        run: npm run typecheck
+        run: bun run typecheck
 
       - name: Build app
         shell: bash
         run: |
           rm -rf out
-          npm run build
+          bun run build
 
       - name: Build and publish Windows artifacts
-        run: npx electron-builder --win --publish always
+        run: bunx electron-builder --win --publish always
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
