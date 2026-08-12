@@ -1,4 +1,12 @@
-import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react'
+import React, {
+  useState,
+  useEffect,
+  useRef,
+  useCallback,
+  useMemo,
+  memo
+} from 'react'
+import { useVirtualizer } from '@tanstack/react-virtual'
 import { usePortStore } from '../stores/portStore'
 import { useUIStore } from '../stores/uiStore'
 import { useSettingsStore } from '../stores/settingsStore'
@@ -26,6 +34,10 @@ import {
 } from 'lucide-react'
 import { clsx } from 'clsx'
 import type { PortInfo } from '../../../shared/types'
+
+const VIRTUALIZE_THRESHOLD = 60
+const ROW_HEIGHT = 44
+const EXPANDED_EXTRA = 96
 
 function formatMemory(rss: number): string {
   if (rss < 1024) return `${rss} KB`
@@ -381,28 +393,27 @@ function ActionMenu({
   )
 }
 
-function PortRow({ port, index }: { port: PortInfo; index: number }) {
-  const selectedPids = usePortStore((s) => s.selectedPids)
-  const togglePortSelection = usePortStore((s) => s.togglePortSelection)
-  const selectedIndex = usePortStore((s) => s.selectedIndex)
-  const addTag = usePortStore((s) => s.addTag)
-  const removeTag = usePortStore((s) => s.removeTag)
-  const expandedRows = useUIStore((s) => s.expandedRows)
-  const toggleRowExpansion = useUIStore((s) => s.toggleRowExpansion)
-  const openQuickPeek = useUIStore((s) => s.openQuickPeek)
-  const activeProfileId = useSettingsStore((s) => s.activeProfileId)
-  const profiles = useSettingsStore((s) => s.profiles)
-  const highlightCritical = useSettingsStore((s) => s.highlightCritical)
+type PortRowProps = {
+  port: PortInfo
+  index: number
+  isHighlighted: boolean
+  isSelected: boolean
+  isExpanded: boolean
+  isFavorite: boolean
+  highlightCritical: boolean
+}
 
-  const activeProfile = activeProfileId ? profiles.find((p) => p.id === activeProfileId) : null
-  const isFavorite = activeProfile ? activeProfile.favoritePorts.includes(port.port) : false
-
+const PortRow = memo(function PortRow({
+  port,
+  index: _index,
+  isHighlighted,
+  isSelected,
+  isExpanded,
+  isFavorite,
+  highlightCritical
+}: PortRowProps) {
   const [menuOpen, setMenuOpen] = useState(false)
   const [tagInput, setTagInput] = useState('')
-  const isSelected = selectedPids.has(port.pid)
-  const isHighlighted = selectedIndex === index
-  const isExpanded = expandedRows.has(port.pid)
-
   const closeMenu = useCallback(() => setMenuOpen(false), [])
 
   return (
@@ -414,7 +425,7 @@ function PortRow({ port, index }: { port: PortInfo; index: number }) {
           if (e.key === 'Enter' || e.key === ' ') {
             e.preventDefault()
             e.stopPropagation()
-            openQuickPeek(port.pid)
+            useUIStore.getState().openQuickPeek(port.pid)
           }
         }}
         className={clsx(
@@ -427,12 +438,16 @@ function PortRow({ port, index }: { port: PortInfo; index: number }) {
         <td className="py-2.5 px-3 w-10">
           <Checkbox
             checked={isSelected}
-            onChange={() => togglePortSelection(port.pid)}
+            onChange={() =>
+              usePortStore.getState().togglePortSelection(port.pid)
+            }
           />
         </td>
         <td className="py-2.5 px-3 w-8">
           <button
-            onClick={() => toggleRowExpansion(port.pid)}
+            onClick={() =>
+              useUIStore.getState().toggleRowExpansion(port.pid)
+            }
             className="p-0.5 rounded hover:bg-bg-elevated transition-colors"
           >
             <ChevronRight
@@ -556,7 +571,7 @@ function PortRow({ port, index }: { port: PortInfo; index: number }) {
                       <button
                         onClick={(e) => {
                           e.stopPropagation()
-                          removeTag(port.port, tag)
+                          usePortStore.getState().removeTag(port.port, tag)
                         }}
                         className="ml-0.5 opacity-60 hover:opacity-100 transition-opacity"
                       >
@@ -572,7 +587,7 @@ function PortRow({ port, index }: { port: PortInfo; index: number }) {
                       if (e.key === 'Enter' && tagInput.trim()) {
                         e.preventDefault()
                         e.stopPropagation()
-                        addTag(port.port, tagInput.trim())
+                        usePortStore.getState().addTag(port.port, tagInput.trim())
                         setTagInput('')
                       }
                     }}
@@ -588,7 +603,7 @@ function PortRow({ port, index }: { port: PortInfo; index: number }) {
       )}
     </>
   )
-}
+})
 
 const sortableColumns: {
   key: keyof PortInfo
@@ -602,12 +617,64 @@ const sortableColumns: {
   { key: 'memory', label: 'Memory' }
 ]
 
+function TableHeader({
+  allSelected,
+  someSelected,
+  sortBy,
+  sortDirection,
+  onHeaderCheckbox,
+  onSort
+}: {
+  allSelected: boolean
+  someSelected: boolean
+  sortBy: keyof PortInfo
+  sortDirection: 'asc' | 'desc'
+  onHeaderCheckbox: () => void
+  onSort: (key: keyof PortInfo) => void
+}) {
+  return (
+    <thead className="sticky top-0 bg-bg-card z-10">
+      <tr className="border-b border-border">
+        <th className="w-10 py-3 px-3">
+          <Checkbox
+            checked={allSelected}
+            indeterminate={someSelected}
+            onChange={onHeaderCheckbox}
+          />
+        </th>
+        <th className="w-8" />
+        {sortableColumns.map(({ key, label }) => (
+          <th
+            key={key}
+            className="text-left py-3 px-3 text-[11px] uppercase tracking-wider text-text-muted font-semibold cursor-pointer hover:text-text-secondary transition-colors select-none"
+            onClick={() => onSort(key)}
+          >
+            <div className="flex items-center gap-1.5">
+              {label}
+              {sortBy === key && (
+                <ArrowUpDown
+                  className={clsx(
+                    'w-3 h-3 text-accent',
+                    sortDirection === 'desc' && 'rotate-180'
+                  )}
+                />
+              )}
+            </div>
+          </th>
+        ))}
+        <th className="text-left py-3 px-3 text-[11px] uppercase tracking-wider text-text-muted font-semibold w-12" />
+      </tr>
+    </thead>
+  )
+}
+
 export function PortTable() {
   const filteredPorts = usePortStore((s) => s.filteredPorts)
   const sortBy = usePortStore((s) => s.sortBy)
   const sortDirection = usePortStore((s) => s.sortDirection)
   const setSortBy = usePortStore((s) => s.setSortBy)
   const selectedPids = usePortStore((s) => s.selectedPids)
+  const selectedIndex = usePortStore((s) => s.selectedIndex)
   const killSelected = usePortStore((s) => s.killSelected)
   const selectAll = usePortStore((s) => s.selectAll)
   const clearSelection = usePortStore((s) => s.clearSelection)
@@ -615,6 +682,17 @@ export function PortTable() {
   const showConfirm = useUIStore((s) => s.showConfirm)
   const groupByProject = usePortStore((s) => s.groupByProject)
   const setGroupByProject = usePortStore((s) => s.setGroupByProject)
+  const expandedRows = useUIStore((s) => s.expandedRows)
+  const highlightCritical = useSettingsStore((s) => s.highlightCritical)
+  const activeProfileId = useSettingsStore((s) => s.activeProfileId)
+  const profiles = useSettingsStore((s) => s.profiles)
+
+  const favoritePorts = useMemo(() => {
+    if (activeProfileId == null) return null
+    return profiles.find((p) => p.id === activeProfileId)?.favoritePorts ?? null
+  }, [activeProfileId, profiles])
+
+  const scrollParentRef = useRef<HTMLDivElement>(null)
 
   const groupedPorts = useMemo(() => {
     if (!groupByProject) return null
@@ -627,7 +705,34 @@ export function PortTable() {
     return Object.entries(groups).sort(([a], [b]) => a.localeCompare(b))
   }, [filteredPorts, groupByProject])
 
-  const allSelected = filteredPorts.length > 0 && selectedPids.size === filteredPorts.length
+  const shouldVirtualize =
+    !groupByProject && filteredPorts.length > VIRTUALIZE_THRESHOLD
+
+  const rowVirtualizer = useVirtualizer({
+    count: shouldVirtualize ? filteredPorts.length : 0,
+    getScrollElement: () => scrollParentRef.current,
+    estimateSize: (i) => {
+      const port = filteredPorts[i]
+      if (!port) return ROW_HEIGHT
+      return expandedRows.has(port.pid)
+        ? ROW_HEIGHT + EXPANDED_EXTRA
+        : ROW_HEIGHT
+    },
+    overscan: 8
+  })
+
+  useEffect(() => {
+    if (!shouldVirtualize) return
+    rowVirtualizer.measure()
+  }, [expandedRows, filteredPorts.length, shouldVirtualize, rowVirtualizer])
+
+  useEffect(() => {
+    if (!shouldVirtualize || selectedIndex < 0) return
+    rowVirtualizer.scrollToIndex(selectedIndex, { align: 'auto' })
+  }, [selectedIndex, shouldVirtualize, rowVirtualizer])
+
+  const allSelected =
+    filteredPorts.length > 0 && selectedPids.size === filteredPorts.length
   const someSelected = selectedPids.size > 0 && !allSelected
 
   const handleHeaderCheckbox = () => {
@@ -650,6 +755,30 @@ export function PortTable() {
       killSelected()
     }
   }
+
+  const renderPortRow = (port: PortInfo, index: number) => (
+    <PortRow
+      key={`${port.pid}:${port.port}`}
+      port={port}
+      index={index}
+      isHighlighted={selectedIndex === index}
+      isSelected={selectedPids.has(port.pid)}
+      isExpanded={expandedRows.has(port.pid)}
+      isFavorite={
+        favoritePorts ? favoritePorts.includes(port.port) : false
+      }
+      highlightCritical={highlightCritical}
+    />
+  )
+
+  const virtualItems = shouldVirtualize ? rowVirtualizer.getVirtualItems() : []
+  const paddingTop =
+    shouldVirtualize && virtualItems.length > 0 ? virtualItems[0].start : 0
+  const paddingBottom =
+    shouldVirtualize && virtualItems.length > 0
+      ? rowVirtualizer.getTotalSize() -
+        virtualItems[virtualItems.length - 1].end
+      : 0
 
   return (
     <div className="h-full flex flex-col bg-bg-card rounded-xl border border-border-subtle overflow-hidden">
@@ -683,40 +812,20 @@ export function PortTable() {
         </div>
       )}
 
-      <div className="flex-1 overflow-auto" data-port-table>
+      <div
+        ref={scrollParentRef}
+        className="flex-1 overflow-auto"
+        data-port-table
+      >
         <table className="w-full">
-          <thead className="sticky top-0 bg-bg-card z-10">
-            <tr className="border-b border-border">
-              <th className="w-10 py-3 px-3">
-                <Checkbox
-                  checked={allSelected}
-                  indeterminate={someSelected}
-                  onChange={handleHeaderCheckbox}
-                />
-              </th>
-              <th className="w-8" />
-              {sortableColumns.map(({ key, label }) => (
-                <th
-                  key={key}
-                  className="text-left py-3 px-3 text-[11px] uppercase tracking-wider text-text-muted font-semibold cursor-pointer hover:text-text-secondary transition-colors select-none"
-                  onClick={() => setSortBy(key)}
-                >
-                  <div className="flex items-center gap-1.5">
-                    {label}
-                    {sortBy === key && (
-                      <ArrowUpDown
-                        className={clsx(
-                          'w-3 h-3 text-accent',
-                          sortDirection === 'desc' && 'rotate-180'
-                        )}
-                      />
-                    )}
-                  </div>
-                </th>
-              ))}
-              <th className="text-left py-3 px-3 text-[11px] uppercase tracking-wider text-text-muted font-semibold w-12" />
-            </tr>
-          </thead>
+          <TableHeader
+            allSelected={allSelected}
+            someSelected={someSelected}
+            sortBy={sortBy}
+            sortDirection={sortDirection}
+            onHeaderCheckbox={handleHeaderCheckbox}
+            onSort={setSortBy}
+          />
           <tbody>
             {filteredPorts.length === 0 ? (
               <tr>
@@ -740,36 +849,54 @@ export function PortTable() {
                       <td colSpan={10} className="px-4 py-1.5">
                         <div className="flex items-center gap-2">
                           <FolderOpen className="w-3 h-3 text-accent" />
-                          <span className="text-xs font-semibold text-text-primary">{projectName}</span>
-                          <span className="text-[10px] text-text-muted">({ports.length})</span>
+                          <span className="text-xs font-semibold text-text-primary">
+                            {projectName}
+                          </span>
+                          <span className="text-[10px] text-text-muted">
+                            ({ports.length})
+                          </span>
                         </div>
                       </td>
                     </tr>
                     {ports.map((port) => {
-                      // Look up the real index in filteredPorts — group order
-                      // doesn't match sort order, so startIdx+i was wrong.
                       const index = filteredPorts.findIndex(
                         (p) => p.pid === port.pid && p.port === port.port
                       )
-                      return (
-                        <PortRow
-                          key={`${port.pid}:${port.port}`}
-                          port={port}
-                          index={index}
-                        />
-                      )
+                      return renderPortRow(port, index)
                     })}
                   </React.Fragment>
                 )
               })
+            ) : shouldVirtualize ? (
+              <>
+                {paddingTop > 0 && (
+                  <tr aria-hidden="true">
+                    <td
+                      colSpan={10}
+                      style={{ height: paddingTop, padding: 0, border: 0 }}
+                    />
+                  </tr>
+                )}
+                {virtualItems.map((virtualRow) => {
+                  const port = filteredPorts[virtualRow.index]
+                  if (!port) return null
+                  return renderPortRow(port, virtualRow.index)
+                })}
+                {paddingBottom > 0 && (
+                  <tr aria-hidden="true">
+                    <td
+                      colSpan={10}
+                      style={{
+                        height: paddingBottom,
+                        padding: 0,
+                        border: 0
+                      }}
+                    />
+                  </tr>
+                )}
+              </>
             ) : (
-              filteredPorts.map((port, index) => (
-                <PortRow
-                  key={`${port.pid}:${port.port}`}
-                  port={port}
-                  index={index}
-                />
-              ))
+              filteredPorts.map((port, index) => renderPortRow(port, index))
             )}
           </tbody>
         </table>
@@ -782,7 +909,9 @@ export function PortTable() {
             onClick={() => setGroupByProject(!groupByProject)}
             className={clsx(
               'flex items-center gap-1 px-2 py-0.5 rounded-md transition-colors',
-              groupByProject ? 'bg-accent/10 text-accent' : 'hover:bg-bg-hover hover:text-text-secondary'
+              groupByProject
+                ? 'bg-accent/10 text-accent'
+                : 'hover:bg-bg-hover hover:text-text-secondary'
             )}
           >
             <FolderOpen className="w-3 h-3" />
@@ -794,7 +923,8 @@ export function PortTable() {
             <span className="kbd">↑↓</span> navigate
           </span>
           <span>
-            <span className="kbd">Space</span> / <span className="kbd">↵</span> preview
+            <span className="kbd">Space</span> / <span className="kbd">↵</span>{' '}
+            preview
           </span>
           <span>
             <span className="kbd">⋮</span> actions

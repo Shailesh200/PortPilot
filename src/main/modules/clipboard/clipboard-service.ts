@@ -11,6 +11,7 @@ import type { ClipboardItem, ClipboardKind } from '../../../shared/types'
 
 const MAX_ITEMS = 200
 let history: ClipboardItem[] = []
+let historyLoaded = false
 let lastText = ''
 let timer: ReturnType<typeof setInterval> | null = null
 let captureEnabled = false
@@ -59,6 +60,8 @@ function broadcast(): void {
 }
 
 export function loadClipboardHistory(): ClipboardItem[] {
+  if (historyLoaded) return history
+  historyLoaded = true
   try {
     const p = filePath()
     if (existsSync(p)) {

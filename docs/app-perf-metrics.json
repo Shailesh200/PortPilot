@@ -1,0 +1,158 @@
+{
+  "captured": "2026-08-12T12:40Z",
+  "label": "post-app-perf (code-split + poll/store/startup)",
+  "stack": {
+    "electron": "35.7.5",
+    "react": "19.2.8",
+    "vite": "6.4.3",
+    "packageManager": "bun"
+  },
+  "bundle": {
+    "primary_js_raw_kb": 706.4,
+    "primary_js_gzip_kb": 128.4,
+    "css_kb": 80.7,
+    "chunks": {
+      "codemirror_kb": 1293.25,
+      "office_kb": 1813.4,
+      "pdfjs_kb": 1010.85,
+      "excel_kb": 293.92,
+      "icons_kb": 60.98,
+      "diff_kb": 169.93,
+      "DatabaseModule_kb": 143.35,
+      "FormatConverter_kb": 465.92,
+      "Settings_kb": 38.74,
+      "TextModule_kb": 9.96
+    },
+    "out_mb": 7.5,
+    "note": "Heavy tools are separate async chunks; ports shell loads ~706KB JS first"
+  },
+  "runs": [
+    {
+      "run": 1,
+      "wall_to_show_ms": 1441.0,
+      "bench": {
+        "whenReady": 352,
+        "did-finish-load": 623,
+        "ready-to-show": 658,
+        "show": 846,
+        "at": "2026-08-12T12:40:01.010Z"
+      },
+      "idle_rss_mb": 422.3,
+      "breakdown": [
+        [
+          "main",
+          170.0
+        ],
+        [
+          "crashpad",
+          7.5
+        ],
+        [
+          "gpu",
+          84.8
+        ],
+        [
+          "utility",
+          39.5
+        ],
+        [
+          "renderer",
+          120.6
+        ]
+      ]
+    },
+    {
+      "run": 2,
+      "wall_to_show_ms": 895.1,
+      "bench": {
+        "whenReady": 115,
+        "did-finish-load": 286,
+        "ready-to-show": 325,
+        "show": 391,
+        "at": "2026-08-12T12:40:08.420Z"
+      },
+      "idle_rss_mb": 508.4,
+      "breakdown": [
+        [
+          "main",
+          200.7
+        ],
+        [
+          "crashpad",
+          9.1
+        ],
+        [
+          "gpu",
+          108.4
+        ],
+        [
+          "utility",
+          50.1
+        ],
+        [
+          "renderer",
+          140.2
+        ]
+      ]
+    },
+    {
+      "run": 3,
+      "wall_to_show_ms": 751.9,
+      "bench": {
+        "whenReady": 109,
+        "did-finish-load": 277,
+        "ready-to-show": 287,
+        "show": 352,
+        "at": "2026-08-12T12:40:15.703Z"
+      },
+      "idle_rss_mb": 504.7,
+      "breakdown": [
+        [
+          "main",
+          199.5
+        ],
+        [
+          "crashpad",
+          9.1
+        ],
+        [
+          "gpu",
+          105.8
+        ],
+        [
+          "utility",
+          50.0
+        ],
+        [
+          "renderer",
+          140.2
+        ]
+      ]
+    }
+  ],
+  "summary": {
+    "avg_wall_to_show_ms": 1029.3,
+    "avg_whenReady_ms": 192,
+    "avg_show_from_mainjs_ms": 529.7,
+    "avg_idle_rss_mb": 478.5,
+    "min_wall_ms": 751.9,
+    "max_wall_ms": 1441.0
+  },
+  "compare": {
+    "pre_tier1": {
+      "primary_js_mb": 4.74,
+      "cold_ms": 1198,
+      "rss_mb": 381
+    },
+    "post_tier1": {
+      "primary_js_mb": 5.06,
+      "cold_ms": 1006,
+      "rss_mb": 426
+    },
+    "post_app_perf": {
+      "primary_js_mb": 0.69,
+      "cold_ms": 1029.3,
+      "rss_mb": 478.5
+    }
+  }
+}

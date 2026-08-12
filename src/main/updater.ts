@@ -37,7 +37,11 @@ export function initAutoUpdater(mainWindow: BrowserWindow): void {
     autoUpdater.quitAndInstall()
   })
 
-  autoUpdater.checkForUpdates().catch((err) => {
-    log.warn('Update check failed:', err)
-  })
+  // Don't compete with first paint / port scan — check after idle.
+  const runCheck = (): void => {
+    autoUpdater.checkForUpdates().catch((err) => {
+      log.warn('Update check failed:', err)
+    })
+  }
+  setTimeout(runCheck, 15_000)
 }

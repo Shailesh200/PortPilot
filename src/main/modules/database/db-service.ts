@@ -45,6 +45,7 @@ interface StoreFile {
 }
 
 let store: StoreFile = { connections: [], history: [], savedQueries: [] }
+let storeLoaded = false
 const live = new Map<string, unknown>()
 const tunnels = new Map<string, { close: () => void; localPort: number }>()
 
@@ -66,6 +67,8 @@ function persist(): void {
 }
 
 export function loadDbStore(): StoreFile {
+  if (storeLoaded) return store
+  storeLoaded = true
   try {
     if (existsSync(storePath())) {
       store = JSON.parse(readFileSync(storePath(), 'utf-8')) as StoreFile

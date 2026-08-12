@@ -1,6 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
 import { clsx } from 'clsx'
-import { getDocument } from '@/lib/pdfjs'
 
 type Props = {
   data: Uint8Array | null
@@ -43,6 +42,7 @@ export function PdfPagePreview({
     const run = async () => {
       setRendering(true)
       try {
+        const { getDocument } = await import('@/lib/pdfjs')
         // Copy — pdf.js may transfer/detach the buffer
         const copy = new Uint8Array(data)
         const task = getDocument({ data: copy })

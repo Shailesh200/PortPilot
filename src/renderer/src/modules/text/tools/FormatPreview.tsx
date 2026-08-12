@@ -1,4 +1,4 @@
-import { useMemo, useState, type ReactNode } from 'react'
+import { useEffect, useMemo, useState, type ReactNode } from 'react'
 import { clsx } from 'clsx'
 import DOMPurify from 'dompurify'
 import {
@@ -183,16 +183,34 @@ function formatCell(v: unknown): string {
 }
 
 function MarkdownPreviewHtml({ source }: { source: string }) {
-  const html = useMemo(() => {
-    try {
-      const raw = markdownToHtml(source || '')
-      return DOMPurify.sanitize(raw, {
-        ADD_ATTR: ['target', 'rel']
-      })
-    } catch (e) {
-      return `<p class="text-danger">${
-        e instanceof Error ? e.message : 'Markdown render failed'
-      }</p>`
+  const [html, setHtml] = useState('')
+
+  useEffect(() => {
+    let cancelled = false
+    if (!source.trim()) {
+      setHtml('')
+      return
+    }
+    void (async () => {
+      try {
+        const raw = await markdownToHtml(source || '')
+        if (cancelled) return
+        setHtml(
+          DOMPurify.sanitize(raw, {
+            ADD_ATTR: ['target', 'rel']
+          })
+        )
+      } catch (e) {
+        if (cancelled) return
+        setHtml(
+          `<p class="text-danger">${
+            e instanceof Error ? e.message : 'Markdown render failed'
+          }</p>`
+        )
+      }
+    })()
+    return () => {
+      cancelled = true
     }
   }, [source])
 
@@ -266,10 +284,7 @@ function XmlPreview({ text }: { text: string }) {
   )
 }
 
-function previewModel(
-  fmt: Fmt,
-  text: string
-):
+type PreviewModel =
   | { kind: 'empty' }
   | { kind: 'error'; message: string }
   | { kind: 'markdown'; source: string }
@@ -281,7 +296,9 @@ function previewModel(
       kind: 'table'
       rows: Record<string, unknown>[]
       sheetLabel?: string
-    } {
+    }
+
+async function previewModel(fmt: Fmt, text: string): Promise<PreviewModel> {
   if (!text.replace(/^\uFEFF/, '').trim()) return { kind: 'empty' }
 
   try {
@@ -298,7 +315,7 @@ function previewModel(
       case 'xml': {
         // Prefer structured tree when parseable; else formatted source.
         try {
-          const data = parse('xml', text)
+          const data = await parse('xml', text)
           if (data !== null && typeof data === 'object') {
             return { kind: 'tree', data }
           }
@@ -308,7 +325,7 @@ function previewModel(
         return { kind: 'xml', source: text }
       }
       case 'csv': {
-        const data = parse('csv', text)
+        const data = await parse('csv', text)
         return {
           kind: 'table',
           rows: asCsvRows(data),
@@ -324,7 +341,7 @@ function previewModel(
             sheetLabel: 'Sheet1'
           }
         } catch {
-          const data = parse('csv', text)
+          const data = await parse('csv', text)
           return {
             kind: 'table',
             rows: asCsvRows(data),
@@ -335,7 +352,7 @@ function previewModel(
       case 'json':
       case 'yaml':
       case 'toml': {
-        const data = parse(fmt, text)
+        const data = await parse(fmt, text)
         if (
           Array.isArray(data) &&
           data.length > 0 &&
@@ -371,7 +388,17 @@ export function FormatPreview({
   text: string
   className?: string
 }) {
-  const model = useMemo(() => previewModel(fmt, text), [fmt, text])
+  const [model, setModel] = useState<PreviewModel>({ kind: 'empty' })
+
+  useEffect(() => {
+    let cancelled = false
+    void previewModel(fmt, text).then((next) => {
+      if (!cancelled) setModel(next)
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [fmt, text])
 
   return (
     <div className={clsx(SCROLL, className)}>

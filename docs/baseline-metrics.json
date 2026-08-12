@@ -1,0 +1,7 @@
+{
+  "note": "Pre Tier-1 baseline stub \u2014 see baseline-architecture.md / tier1-metrics.json / app-perf-metrics.json / next-items-metrics.json",
+  "summary": {
+    "avg_wall_to_show_ms": 1198.0,
+    "avg_idle_rss_mb": 381.2
+  }
+}

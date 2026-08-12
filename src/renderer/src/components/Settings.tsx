@@ -1,4 +1,4 @@
-import { useState, useEffect, type ChangeEventHandler } from 'react'
+import { useState, useEffect, type ChangeEventHandler, type ReactElement } from 'react'
 import { useSettingsStore } from '../stores/settingsStore'
 import { usePortStore } from '../stores/portStore'
 import { useUIStore } from '../stores/uiStore'
@@ -156,13 +156,11 @@ function SelectInput({
 }
 
 function GeneralSettings() {
-  const {
-    globalShortcut,
-    refreshInterval,
-    autoOpenBrowser,
-    autoFocusTerminal,
-    updateSettings
-  } = useSettingsStore()
+  const globalShortcut = useSettingsStore((s) => s.globalShortcut)
+  const refreshInterval = useSettingsStore((s) => s.refreshInterval)
+  const autoOpenBrowser = useSettingsStore((s) => s.autoOpenBrowser)
+  const autoFocusTerminal = useSettingsStore((s) => s.autoFocusTerminal)
+  const updateSettings = useSettingsStore((s) => s.updateSettings)
 
   return (
     <div>
@@ -204,6 +202,12 @@ function GeneralSettings() {
             value={globalShortcut}
             onChange={async (e) => {
               const newShortcut = e.target.value
+              if (newShortcut === 'CommandOrControl+Shift+P') {
+                const ok = window.confirm(
+                  '⌘⇧P is VS Code’s Command Palette shortcut. Registering it globally will steal that key from VS Code/Cursor while PortPilot is running. Continue?'
+                )
+                if (!ok) return
+              }
               const success = await window.api.updateGlobalShortcut(newShortcut)
               if (success) {
                 updateSettings({ globalShortcut: newShortcut })
@@ -214,7 +218,9 @@ function GeneralSettings() {
             <option value="CommandOrControl+Alt+P">⌘⌥P (default)</option>
             <option value="CommandOrControl+Shift+Space">⌘⇧Space</option>
             <option value="CommandOrControl+Shift+L">⌘⇧L</option>
-            <option value="CommandOrControl+Shift+P">⌘⇧P (VS Code palette)</option>
+            <option value="CommandOrControl+Shift+P">
+              ⌘⇧P (conflicts with VS Code)
+            </option>
           </select>
         </div>
       </SettingRow>
@@ -246,7 +252,8 @@ function GeneralSettings() {
 }
 
 function AppearanceSettings() {
-  const { darkMode, updateSettings } = useSettingsStore()
+  const darkMode = useSettingsStore((s) => s.darkMode)
+  const updateSettings = useSettingsStore((s) => s.updateSettings)
 
   return (
     <div>
@@ -401,14 +408,12 @@ function ShortcutsSettings() {
 }
 
 function NotificationsSettings() {
-  const {
-    cpuThreshold,
-    memoryThreshold,
-    notifyPortChange,
-    notifyHighCpu,
-    notifyCrash,
-    updateSettings
-  } = useSettingsStore()
+  const cpuThreshold = useSettingsStore((s) => s.cpuThreshold)
+  const memoryThreshold = useSettingsStore((s) => s.memoryThreshold)
+  const notifyPortChange = useSettingsStore((s) => s.notifyPortChange)
+  const notifyHighCpu = useSettingsStore((s) => s.notifyHighCpu)
+  const notifyCrash = useSettingsStore((s) => s.notifyCrash)
+  const updateSettings = useSettingsStore((s) => s.updateSettings)
 
   return (
     <div>
@@ -479,15 +484,13 @@ function NotificationsSettings() {
 }
 
 function SafetySettings() {
-  const {
-    confirmDestructive,
-    highlightCritical,
-    protectSystemPorts,
-    updateSettings
-  } = useSettingsStore()
-  const { clearHistory } = usePortStore()
-  const { resetSettings } = useSettingsStore()
-  const { addToast } = useUIStore()
+  const confirmDestructive = useSettingsStore((s) => s.confirmDestructive)
+  const highlightCritical = useSettingsStore((s) => s.highlightCritical)
+  const protectSystemPorts = useSettingsStore((s) => s.protectSystemPorts)
+  const updateSettings = useSettingsStore((s) => s.updateSettings)
+  const clearHistory = usePortStore((s) => s.clearHistory)
+  const resetSettings = useSettingsStore((s) => s.resetSettings)
+  const addToast = useUIStore((s) => s.addToast)
 
   const handleExportSettings = () => {
     const state = useSettingsStore.getState()
@@ -712,17 +715,15 @@ function SafetySettings() {
 const PROFILE_ICONS = ['🎨', '⚙️', '🗄️', '🌐', '🧪', '📦', '🔧', '🚀', '💻', '🔌']
 
 function ProfilesSettings() {
-  const {
-    profiles,
-    activeProfileId,
-    addProfile,
-    removeProfile,
-    setActiveProfile,
-    openProfileCreator,
-    clearOpenProfileCreator
-  } = useSettingsStore()
+  const profiles = useSettingsStore((s) => s.profiles)
+  const activeProfileId = useSettingsStore((s) => s.activeProfileId)
+  const addProfile = useSettingsStore((s) => s.addProfile)
+  const removeProfile = useSettingsStore((s) => s.removeProfile)
+  const setActiveProfile = useSettingsStore((s) => s.setActiveProfile)
+  const openProfileCreator = useSettingsStore((s) => s.openProfileCreator)
+  const clearOpenProfileCreator = useSettingsStore((s) => s.clearOpenProfileCreator)
   const setProfileFilter = usePortStore((s) => s.setProfileFilter)
-  const { addToast } = useUIStore()
+  const addToast = useUIStore((s) => s.addToast)
   const [isCreating, setIsCreating] = useState(false)
   const [newName, setNewName] = useState('')
   const [newIcon, setNewIcon] = useState('🔧')
@@ -907,7 +908,7 @@ function ProfilesSettings() {
   )
 }
 
-const tabComponents: Record<SettingsTab, () => JSX.Element> = {
+const tabComponents: Record<SettingsTab, () => ReactElement> = {
   general: GeneralSettings,
   appearance: AppearanceSettings,
   shortcuts: ShortcutsSettings,

@@ -1,11 +1,5 @@
 import { useState } from 'react'
-import {
-  Network,
-  FileJson,
-  Database,
-  Settings,
-  Plus
-} from 'lucide-react'
+import { Network, FileJson, Database, Settings, Plus } from '../lib/shellIcons'
 import { useUIStore } from '../stores/uiStore'
 import { useSettingsStore } from '../stores/settingsStore'
 import { usePortStore } from '../stores/portStore'

@@ -14,16 +14,7 @@ import {
   EyeOff,
   FileUp
 } from 'lucide-react'
-import CodeMirror from '@uiw/react-codemirror'
-import { html } from '@codemirror/lang-html'
-import { json } from '@codemirror/lang-json'
-import { yaml as yamlLang } from '@codemirror/lang-yaml'
-import { xml } from '@codemirror/lang-xml'
-import { markdown } from '@codemirror/lang-markdown'
-import { StreamLanguage } from '@codemirror/language'
-import { toml } from '@codemirror/legacy-modes/mode/toml'
-import { EditorState, type Extension } from '@codemirror/state'
-import { EditorView, placeholder as cmPlaceholder } from '@codemirror/view'
+import type { Extension } from '@codemirror/state'
 import { WorkspaceToolbar } from '../../../shell/WorkspaceToolbar'
 import { useSettingsStore } from '../../../stores/settingsStore'
 import { useUIStore } from '../../../stores/uiStore'
@@ -41,6 +32,7 @@ import {
   portpilotHighlight
 } from './jsEditorTheme'
 import {
+  CONVERSIONS,
   FORMATS,
   FORMAT_EXT,
   FORMAT_LABELS,
@@ -71,6 +63,70 @@ const FILE_ACCEPT =
 const CM_FILL =
   'absolute inset-0 min-h-0 overflow-hidden [&_.cm-editor]:h-full [&_.cm-editor]:max-h-full [&_.cm-scroller]:overflow-auto'
 
+type CmBundle = {
+  CodeMirror: typeof import('@uiw/react-codemirror').default
+  html: typeof import('@codemirror/lang-html').html
+  json: typeof import('@codemirror/lang-json').json
+  yamlLang: typeof import('@codemirror/lang-yaml').yaml
+  xml: typeof import('@codemirror/lang-xml').xml
+  markdown: typeof import('@codemirror/lang-markdown').markdown
+  StreamLanguage: typeof import('@codemirror/language').StreamLanguage
+  toml: typeof import('@codemirror/legacy-modes/mode/toml').toml
+  EditorState: typeof import('@codemirror/state').EditorState
+  EditorView: typeof import('@codemirror/view').EditorView
+  cmPlaceholder: typeof import('@codemirror/view').placeholder
+}
+
+function useCodeMirrorBundle() {
+  const [cm, setCm] = useState<CmBundle | null>(null)
+  useEffect(() => {
+    let cancelled = false
+    void (async () => {
+      const [
+        cmMod,
+        htmlMod,
+        jsonMod,
+        yamlMod,
+        xmlMod,
+        mdMod,
+        langMod,
+        tomlMod,
+        stateMod,
+        viewMod
+      ] = await Promise.all([
+        import('@uiw/react-codemirror'),
+        import('@codemirror/lang-html'),
+        import('@codemirror/lang-json'),
+        import('@codemirror/lang-yaml'),
+        import('@codemirror/lang-xml'),
+        import('@codemirror/lang-markdown'),
+        import('@codemirror/language'),
+        import('@codemirror/legacy-modes/mode/toml'),
+        import('@codemirror/state'),
+        import('@codemirror/view')
+      ])
+      if (cancelled) return
+      setCm({
+        CodeMirror: cmMod.default,
+        html: htmlMod.html,
+        json: jsonMod.json,
+        yamlLang: yamlMod.yaml,
+        xml: xmlMod.xml,
+        markdown: mdMod.markdown,
+        StreamLanguage: langMod.StreamLanguage,
+        toml: tomlMod.toml,
+        EditorState: stateMod.EditorState,
+        EditorView: viewMod.EditorView,
+        cmPlaceholder: viewMod.placeholder
+      })
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [])
+  return cm
+}
+
 /**
  * CodeMirror only scrolls when it has a real pixel height. Percentage heights
  * often collapse in nested flex panes, so we measure the host with ResizeObserver.
@@ -79,12 +135,14 @@ function FillCodeMirror({
   value,
   extensions,
   onChange,
-  editable = true
+  editable = true,
+  CodeMirror
 }: {
   value: string
   extensions: Extension[]
   onChange?: (v: string) => void
   editable?: boolean
+  CodeMirror: CmBundle['CodeMirror']
 }) {
   const hostRef = useRef<HTMLDivElement>(null)
   const [heightPx, setHeightPx] = useState(0)
@@ -155,39 +213,43 @@ function saveFiltersFor(to: Fmt): { name: string; extensions: string[] }[] {
   ]
 }
 
-function languageExtension(fmt: Fmt): Extension | null {
+function languageExtension(cm: CmBundle, fmt: Fmt): Extension | null {
   switch (editorLanguageFmt(fmt)) {
     case 'json':
-      return json()
+      return cm.json()
     case 'yaml':
-      return yamlLang()
+      return cm.yamlLang()
     case 'toml':
-      return StreamLanguage.define(toml)
+      return cm.StreamLanguage.define(cm.toml)
     case 'xml':
-      return xml()
+      return cm.xml()
     case 'html':
-      return html()
+      return cm.html()
     case 'md':
-      return markdown()
+      return cm.markdown()
     default:
       return null
   }
 }
 
 function formatEditorExtensions(
+  cm: CmBundle,
   fmt: Fmt,
   dark: boolean,
   opts: { readOnly?: boolean; placeholder?: string }
 ): Extension[] {
-  const lang = languageExtension(fmt)
+  const lang = languageExtension(cm, fmt)
   return [
     portpilotEditorTheme(dark),
     portpilotHighlight(dark),
-    EditorView.lineWrapping,
+    cm.EditorView.lineWrapping,
     ...(lang ? [lang] : []),
-    ...(opts.placeholder ? [cmPlaceholder(opts.placeholder)] : []),
+    ...(opts.placeholder ? [cm.cmPlaceholder(opts.placeholder)] : []),
     ...(opts.readOnly
-      ? [EditorState.readOnly.of(true), EditorView.editable.of(false)]
+      ? [
+          cm.EditorState.readOnly.of(true),
+          cm.EditorView.editable.of(false)
+        ]
       : [])
   ]
 }
@@ -242,6 +304,13 @@ export function FormatConverter() {
   const fileRef = useRef<HTMLInputElement>(null)
   const outputPdfGenRef = useRef(0)
   const outputDocxGenRef = useRef(0)
+  const cm = useCodeMirrorBundle()
+  const [toOptions, setToOptions] = useState<Fmt[]>(() => [...CONVERSIONS[from]])
+  const [canSwap, setCanSwap] = useState(false)
+  const [result, setResult] = useState<
+    | { ok: true; text: string; data: unknown }
+    | { ok: false; error: string; data: unknown }
+  >({ ok: true, text: '', data: null })
 
   useEffect(() => {
     patchSession({
@@ -267,10 +336,17 @@ export function FormatConverter() {
     [importName, from]
   )
 
-  const toOptions = useMemo(() => targetsFor(from, input), [from, input])
-
   useEffect(() => {
-    setTo((prev) => pickValidTo(from, prev, input))
+    let cancelled = false
+    void (async () => {
+      const opts = await targetsFor(from, input)
+      if (cancelled) return
+      setToOptions(opts)
+      setTo((prev) => (opts.includes(prev) ? prev : (opts[0] ?? 'txt')))
+    })()
+    return () => {
+      cancelled = true
+    }
   }, [from, input])
 
   // Prefer visual document preview for binary / document targets
@@ -280,21 +356,45 @@ export function FormatConverter() {
     }
   }, [to])
 
-  const result = useMemo(() => {
-    if (!input.trim()) {
-      return { ok: true as const, text: '', data: null as unknown }
-    }
-    try {
-      const data = parse(from, input, importName ?? undefined)
-      return { ok: true as const, text: stringify(to, data), data }
-    } catch (e) {
-      return {
-        ok: false as const,
-        error: e instanceof Error ? e.message : 'Conversion failed',
-        data: null as unknown
+  useEffect(() => {
+    let cancelled = false
+    void (async () => {
+      if (!input.trim()) {
+        if (!cancelled) setResult({ ok: true, text: '', data: null })
+        return
       }
+      try {
+        const data = await parse(from, input, importName ?? undefined)
+        const textOut = await stringify(to, data)
+        if (!cancelled) setResult({ ok: true, text: textOut, data })
+      } catch (e) {
+        if (!cancelled) {
+          setResult({
+            ok: false,
+            error: e instanceof Error ? e.message : 'Conversion failed',
+            data: null
+          })
+        }
+      }
+    })()
+    return () => {
+      cancelled = true
     }
   }, [from, to, input, importName])
+
+  useEffect(() => {
+    let cancelled = false
+    if (!result.ok || isBinaryFmt(to)) {
+      setCanSwap(false)
+      return
+    }
+    void targetsFor(to, result.text).then((opts) => {
+      if (!cancelled) setCanSwap(opts.includes(from))
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [result, to, from])
 
   // Live PDF bytes for output preview / download parity
   useEffect(() => {
@@ -313,7 +413,7 @@ export function FormatConverter() {
     const timer = window.setTimeout(() => {
       void (async () => {
         try {
-          const htmlDoc = contentToPrintableHtml({ from, input, data })
+          const htmlDoc = await contentToPrintableHtml({ from, input, data })
           const r = await window.api.saveHtmlAsPdf({
             html: htmlDoc,
             preview: true
@@ -369,7 +469,7 @@ export function FormatConverter() {
             from === 'md' || from === 'docx' || from === 'pdf'
               ? input
               : from === 'html'
-                ? stringify('md', data)
+                ? await stringify('md', data)
                 : undefined
           const bytes = await buildBinary('docx', data, { markdownSource })
           if (gen !== outputDocxGenRef.current) return
@@ -394,21 +494,25 @@ export function FormatConverter() {
 
   const inputExtensions = useMemo(
     () =>
-      formatEditorExtensions(from, darkMode, {
-        placeholder: `Paste ${FORMAT_LABELS[from]} or drop a file…`
-      }),
-    [from, darkMode]
+      cm
+        ? formatEditorExtensions(cm, from, darkMode, {
+            placeholder: `Paste ${FORMAT_LABELS[from]} or drop a file…`
+          })
+        : [],
+    [cm, from, darkMode]
   )
 
   const outputExtensions = useMemo(
     () =>
-      formatEditorExtensions(to, darkMode, {
-        readOnly: true,
-        placeholder: isBinaryFmt(to)
-          ? `${FORMAT_LABELS[to]} — use Preview or Download`
-          : 'Output appears here…'
-      }),
-    [to, darkMode]
+      cm
+        ? formatEditorExtensions(cm, to, darkMode, {
+            readOnly: true,
+            placeholder: isBinaryFmt(to)
+              ? `${FORMAT_LABELS[to]} — use Preview or Download`
+              : 'Output appears here…'
+          })
+        : [],
+    [cm, to, darkMode]
   )
 
   const clearImportLock = () => {
@@ -434,7 +538,7 @@ export function FormatConverter() {
         if (guessed === 'docx' || guessed === 'xlsx' || guessed === 'pdf') {
           const imported = await importOfficeFile(file)
           setFrom(imported.fmt)
-          setTo(pickValidTo(imported.fmt, to, imported.text))
+          setTo(await pickValidTo(imported.fmt, to, imported.text))
           setImportName(file.name)
           setInput(imported.text)
           setInputPdfBytes(
@@ -466,7 +570,7 @@ export function FormatConverter() {
         setInputDocxBytes(null)
         if (guessed) {
           setFrom(guessed)
-          setTo(pickValidTo(guessed, to, text))
+          setTo(await pickValidTo(guessed, to, text))
           if (guessed === 'md' || guessed === 'csv' || guessed === 'html') {
             setPreviewInput(true)
           }
@@ -511,8 +615,10 @@ export function FormatConverter() {
         if (!bytes) {
           const data =
             result.data ??
-            (input.trim() ? parse(from, input, importName ?? undefined) : null)
-          const htmlDoc = contentToPrintableHtml({
+            (input.trim()
+              ? await parse(from, input, importName ?? undefined)
+              : null)
+          const htmlDoc = await contentToPrintableHtml({
             from,
             input,
             data
@@ -558,7 +664,9 @@ export function FormatConverter() {
       if (to === 'docx' || to === 'xlsx') {
         const data =
           result.data ??
-          (input.trim() ? parse(from, input, importName ?? undefined) : null)
+          (input.trim()
+            ? await parse(from, input, importName ?? undefined)
+            : null)
         if (data == null) return
         if (to === 'docx' && outputDocxBytes) {
           content = bytesToBase64(outputDocxBytes)
@@ -568,7 +676,7 @@ export function FormatConverter() {
             from === 'md' || from === 'docx' || from === 'pdf'
               ? input
               : from === 'html'
-                ? stringify('md', data)
+                ? await stringify('md', data)
                 : undefined
           const bytes = await buildBinary(to, data, { markdownSource })
           content = bytesToBase64(bytes)
@@ -690,13 +798,7 @@ export function FormatConverter() {
             <ToolButton
               variant="ghost"
               title="Swap input and output"
-              disabled={
-                !result.ok ||
-                isBinaryFmt(to) ||
-                !targetsFor(to, result.ok ? result.text : undefined).includes(
-                  from
-                )
-              }
+              disabled={!result.ok || isBinaryFmt(to) || !canSwap}
               onClick={() => {
                 if (!result.ok || isBinaryFmt(to)) return
                 setInput(result.text)
@@ -780,8 +882,9 @@ export function FormatConverter() {
               >
                 {inputPreviewContent}
               </PreviewViewport>
-            ) : (
+            ) : cm ? (
               <FillCodeMirror
+                CodeMirror={cm.CodeMirror}
                 value={input}
                 extensions={inputExtensions}
                 onChange={(v) => {
@@ -789,6 +892,8 @@ export function FormatConverter() {
                   clearImportLock()
                 }}
               />
+            ) : (
+              <p className="p-3 text-[12.5px] text-text-muted">Loading editor…</p>
             )}
             {dragOver && (
               <div className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-2 bg-accent/10 border-2 border-dashed border-accent rounded-b-xl pointer-events-none">
@@ -827,7 +932,9 @@ export function FormatConverter() {
               </PreviewViewport>
             ) : (
               <div className="relative flex-1 min-h-0 overflow-hidden">
+                {cm ? (
                 <FillCodeMirror
+                  CodeMirror={cm.CodeMirror}
                   value={
                     to === 'pdf' || to === 'docx'
                       ? `${FORMAT_LABELS[to]} binary — switch to Preview to see the document, or Download to save.`
@@ -836,6 +943,9 @@ export function FormatConverter() {
                   extensions={outputExtensions}
                   editable={false}
                 />
+                ) : (
+                  <p className="p-3 text-[12.5px] text-text-muted">Loading editor…</p>
+                )}
               </div>
             )
           ) : (

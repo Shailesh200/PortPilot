@@ -1,32 +1,47 @@
 import * as yaml from 'js-yaml'
 import { parse as parseToml, stringify as stringifyToml } from 'smol-toml'
 import { XMLParser, XMLBuilder } from 'fast-xml-parser'
-import {
-  Document,
-  Packer,
-  Paragraph,
-  TextRun,
-  HeadingLevel,
-  Table,
-  TableRow,
-  TableCell,
-  WidthType,
-  BorderStyle,
-  AlignmentType,
-  LevelFormat,
-  convertInchesToTwip
-} from 'docx'
-import { marked, type Token, type Tokens } from 'marked'
-import TurndownService from 'turndown'
+import type { Token, Tokens } from 'marked'
 import { parseCsvRecords, unparseCsv } from '@/lib/csv'
-import { getDocument } from '@/lib/pdfjs'
-import { rowsFromWorkbook, workbookFromRows } from '@/lib/xlsx'
 
-const turndown = new TurndownService({
-  headingStyle: 'atx',
-  codeBlockStyle: 'fenced',
-  bulletListMarker: '-'
-})
+type DocxNS = typeof import('docx')
+
+let docxMod: DocxNS | null = null
+let markedApi: typeof import('marked').marked | null = null
+let turndownSvc: { turndown: (html: string) => string } | null = null
+
+async function loadDocx(): Promise<DocxNS> {
+  if (!docxMod) docxMod = await import('docx')
+  return docxMod
+}
+
+async function loadMarked(): Promise<typeof import('marked').marked> {
+  if (!markedApi) {
+    const mod = await import('marked')
+    mod.marked.setOptions({ gfm: true, breaks: false })
+    markedApi = mod.marked
+  }
+  return markedApi
+}
+
+async function loadTurndown(): Promise<{ turndown: (html: string) => string }> {
+  if (!turndownSvc) {
+    const { default: TurndownService } = await import('turndown')
+    turndownSvc = new TurndownService({
+      headingStyle: 'atx',
+      codeBlockStyle: 'fenced',
+      bulletListMarker: '-'
+    })
+  }
+  return turndownSvc
+}
+
+function dx(): DocxNS {
+  if (!docxMod) {
+    throw new Error('docx module is not loaded')
+  }
+  return docxMod
+}
 
 export type Fmt =
   | 'json'
@@ -126,14 +141,17 @@ function uniqueFmts(list: Fmt[]): Fmt[] {
  * For MD/DOCX/TXT, JSON/YAML/CSV/… appear only when the content is structured
  * (markdown table, frontmatter object, fenced JSON/YAML, etc.).
  */
-export function targetsFor(from: Fmt, inputText?: string): Fmt[] {
+export async function targetsFor(
+  from: Fmt,
+  inputText?: string
+): Promise<Fmt[]> {
   const base = [...CONVERSIONS[from]]
   const text = inputText?.replace(/^\uFEFF/, '').trim() ?? ''
 
   if (from === 'md' || from === 'docx' || from === 'html' || from === 'pdf') {
     if (!text) return base
     try {
-      const data = parse(from, text)
+      const data = await parse(from, text)
       if (isStructuredData(data)) {
         return uniqueFmts([
           ...base,
@@ -165,12 +183,12 @@ export function targetsFor(from: Fmt, inputText?: string): Fmt[] {
   return base
 }
 
-export function pickValidTo(
+export async function pickValidTo(
   from: Fmt,
   current: Fmt,
   inputText?: string
-): Fmt {
-  const targets = targetsFor(from, inputText)
+): Promise<Fmt> {
+  const targets = await targetsFor(from, inputText)
   if (targets.includes(current)) return current
   return targets[0] ?? 'txt'
 }
@@ -443,7 +461,11 @@ function stringifyText(data: unknown): string {
 }
 
 /** Working-text representation for the editor / copy / preview. */
-export function parse(fmt: Fmt, text: string, filename?: string): unknown {
+export async function parse(
+  fmt: Fmt,
+  text: string,
+  filename?: string
+): Promise<unknown> {
   const trimmed = text.replace(/^\uFEFF/, '').trim()
   if (!trimmed) return null
 
@@ -471,16 +493,17 @@ export function parse(fmt: Fmt, text: string, filename?: string): unknown {
     case 'pdf':
       return parseMarkdown(trimmed)
     case 'html':
-      return parseMarkdown(htmlToMarkdown(trimmed))
+      return parseMarkdown(await htmlToMarkdown(trimmed))
     case 'txt':
       return text.replace(/^\uFEFF/, '')
   }
 }
 
-export function htmlToMarkdown(html: string): string {
+export async function htmlToMarkdown(html: string): Promise<string> {
   const cleaned = html.replace(/^\uFEFF/, '').trim()
   if (!cleaned) return ''
   try {
+    const turndown = await loadTurndown()
     return turndown.turndown(cleaned)
   } catch {
     return cleaned.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim()
@@ -511,14 +534,14 @@ function rowsToHtmlTable(rows: Record<string, unknown>[]): string {
 }
 
 /** Convert parsed data into an HTML fragment (not a full document). */
-export function stringifyHtml(data: unknown): string {
+export async function stringifyHtml(data: unknown): Promise<string> {
   if (data === null || data === undefined) return ''
   if (typeof data === 'string') {
     const md = data.trim()
     if (!md) return ''
     // Prose / markdown source → HTML
     try {
-      return markdownToHtml(md)
+      return await markdownToHtml(md)
     } catch {
       return `<pre>${escapeHtml(data)}</pre>`
     }
@@ -559,18 +582,17 @@ const PRINT_CSS = `
   hr { border: none; border-top: 1px solid #ddd; margin: 1.2em 0; }
 `
 
-marked.setOptions({ gfm: true, breaks: false })
-
-export function markdownToHtml(source: string): string {
+export async function markdownToHtml(source: string): Promise<string> {
+  const marked = await loadMarked()
   return marked.parse(source || '', { async: false }) as string
 }
 
 /** Full HTML document suitable for print / PDF. */
-export function contentToPrintableHtml(opts: {
+export async function contentToPrintableHtml(opts: {
   from: Fmt
   input: string
   data: unknown
-}): string {
+}): Promise<string> {
   const { from, input, data } = opts
   let body: string
 
@@ -586,11 +608,11 @@ export function contentToPrintableHtml(opts: {
     }
     body = raw
   } else if (from === 'md' || from === 'docx' || from === 'pdf') {
-    body = stringifyHtml(input)
+    body = await stringifyHtml(input)
   } else if (from === 'txt') {
     body = `<pre>${escapeHtml(input.replace(/^\uFEFF/, ''))}</pre>`
   } else {
-    body = stringifyHtml(data)
+    body = await stringifyHtml(data)
   }
 
   return `<!DOCTYPE html>
@@ -606,7 +628,7 @@ ${body}
 </html>`
 }
 
-export function stringify(fmt: Fmt, data: unknown): string {
+export async function stringify(fmt: Fmt, data: unknown): Promise<string> {
   if (data === null || data === undefined) return ''
 
   switch (fmt) {
@@ -640,7 +662,10 @@ export function stringify(fmt: Fmt, data: unknown): string {
   }
 }
 
-function headingLevel(depth: number): (typeof HeadingLevel)[keyof typeof HeadingLevel] {
+function headingLevel(
+  depth: number
+): DocxNS['HeadingLevel'][keyof DocxNS['HeadingLevel']] {
+  const { HeadingLevel } = dx()
   switch (depth) {
     case 1:
       return HeadingLevel.HEADING_1
@@ -662,9 +687,10 @@ type InlineOpts = { bold?: boolean; italics?: boolean; code?: boolean }
 function inlineRuns(
   tokens: Token[] | undefined,
   opts: InlineOpts = {}
-): TextRun[] {
+): InstanceType<DocxNS['TextRun']>[] {
+  const { TextRun } = dx()
   if (!tokens?.length) return [new TextRun({ text: '', ...opts })]
-  const runs: TextRun[] = []
+  const runs: InstanceType<DocxNS['TextRun']>[] = []
 
   const pushText = (text: string, extra: InlineOpts = {}) => {
     if (!text) return
@@ -745,21 +771,28 @@ function inlineRuns(
   return runs.length ? runs : [new TextRun({ text: '' })]
 }
 
-const thinBorder = {
-  style: BorderStyle.SINGLE,
-  size: 4,
-  color: 'CBD5E1'
-}
-const tableBorders = {
-  top: thinBorder,
-  bottom: thinBorder,
-  left: thinBorder,
-  right: thinBorder,
-  insideHorizontal: thinBorder,
-  insideVertical: thinBorder
+function tableBorders() {
+  const { BorderStyle } = dx()
+  const thinBorder = {
+    style: BorderStyle.SINGLE,
+    size: 4,
+    color: 'CBD5E1'
+  }
+  return {
+    top: thinBorder,
+    bottom: thinBorder,
+    left: thinBorder,
+    right: thinBorder,
+    insideHorizontal: thinBorder,
+    insideVertical: thinBorder
+  }
 }
 
-function cellParagraphs(cell: Tokens.TableCell, header: boolean): Paragraph[] {
+function cellParagraphs(
+  cell: Tokens.TableCell,
+  header: boolean
+): InstanceType<DocxNS['Paragraph']>[] {
+  const { Paragraph } = dx()
   return [
     new Paragraph({
       children: inlineRuns(cell.tokens, { bold: header })
@@ -767,14 +800,18 @@ function cellParagraphs(cell: Tokens.TableCell, header: boolean): Paragraph[] {
   ]
 }
 
-function tableFromToken(token: Tokens.Table): Table {
+function tableFromToken(
+  token: Tokens.Table
+): InstanceType<DocxNS['Table']> {
+  const { Table, TableRow, TableCell, WidthType } = dx()
+  const borders = tableBorders()
   const colCount = Math.max(token.header.length, 1)
   const width = Math.floor(9026 / colCount)
   const headerRow = new TableRow({
     children: token.header.map(
       (cell) =>
         new TableCell({
-          borders: tableBorders,
+          borders,
           width: { size: width, type: WidthType.DXA },
           children: cellParagraphs(cell, true)
         })
@@ -786,7 +823,7 @@ function tableFromToken(token: Tokens.Table): Table {
         children: row.map(
           (cell) =>
             new TableCell({
-              borders: tableBorders,
+              borders,
               width: { size: width, type: WidthType.DXA },
               children: cellParagraphs(cell, false)
             })
@@ -799,9 +836,17 @@ function tableFromToken(token: Tokens.Table): Table {
   })
 }
 
-type DocChild = Paragraph | Table
+type DocChild =
+  | InstanceType<DocxNS['Paragraph']>
+  | InstanceType<DocxNS['Table']>
 
 function blocksFromTokens(tokens: Token[], listRef?: string): DocChild[] {
+  const {
+    Paragraph,
+    TextRun,
+    BorderStyle,
+    convertInchesToTwip
+  } = dx()
   const out: DocChild[] = []
 
   for (const token of tokens) {
@@ -860,7 +905,7 @@ function blocksFromTokens(tokens: Token[], listRef?: string): DocChild[] {
         list.items.forEach((item, index) => {
           const itemTokens = item.tokens ?? []
           // Prefer inline text from first paragraph/text token
-          let runs: TextRun[] = []
+          let runs: InstanceType<DocxNS['TextRun']>[] = []
           for (const it of itemTokens) {
             if (it.type === 'paragraph') {
               runs = inlineRuns((it as Tokens.Paragraph).tokens)
@@ -965,6 +1010,16 @@ function blocksFromTokens(tokens: Token[], listRef?: string): DocChild[] {
 }
 
 async function markdownToDocx(markdown: string): Promise<Uint8Array> {
+  const [docx, marked] = await Promise.all([loadDocx(), loadMarked()])
+  const {
+    Document,
+    Packer,
+    Paragraph,
+    TextRun,
+    LevelFormat,
+    AlignmentType,
+    convertInchesToTwip
+  } = docx
   const tokens = marked.lexer(markdown || '')
   const children = blocksFromTokens(tokens)
   const doc = new Document({
@@ -1063,6 +1118,7 @@ export async function buildBinary(
   opts?: { markdownSource?: string }
 ): Promise<Uint8Array> {
   if (fmt === 'xlsx') {
+    const { workbookFromRows } = await import('@/lib/xlsx')
     return workbookFromRows(asCsvRows(data))
   }
 
@@ -1073,6 +1129,7 @@ export async function buildBinary(
 }
 
 export async function extractPdfText(data: ArrayBuffer): Promise<string> {
+  const { getDocument } = await import('@/lib/pdfjs')
   const loadingTask = getDocument({ data: new Uint8Array(data) })
   const pdf = await loadingTask.promise
   const parts: string[] = []
@@ -1120,6 +1177,7 @@ export async function importOfficeFile(
 
   if (fmt === 'xlsx') {
     const buf = await file.arrayBuffer()
+    const { rowsFromWorkbook } = await import('@/lib/xlsx')
     const rows = await rowsFromWorkbook(buf)
     return { fmt: 'xlsx', text: JSON.stringify(rows, null, 2) }
   }

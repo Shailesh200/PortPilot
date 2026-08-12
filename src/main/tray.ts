@@ -1,11 +1,10 @@
-import { Tray, Menu, nativeImage, app, dialog, BrowserWindow } from 'electron'
-import { join } from 'path'
+import { Tray, Menu, app, dialog, BrowserWindow } from 'electron'
 import {
   killProcess,
   openInBrowser,
   openInTerminal,
   restartProcess
-} from './services/process-manager'
+} from './os'
 import { markExpectedStopsForPid } from './services/expected-stops'
 import {
   getLastPorts,
@@ -23,6 +22,7 @@ import {
   clearClipboardHistory,
   deleteClipboardItem
 } from './modules/clipboard/clipboard-service'
+import { loadTrayNativeImage } from './os/resources'
 import type { ClipboardItem, NavLocation, PortInfo, Profile } from '../shared/types'
 
 export interface TrayHandlers {
@@ -35,15 +35,6 @@ let tray: Tray | null = null
 let removeListener: (() => void) | null = null
 let handlers: TrayHandlers | null = null
 let lastMenuSignature = ''
-
-function getIconPath(): string {
-  // extraResources copies resources/ next to the asar in packaged builds;
-  // __dirname-relative paths only work in dev.
-  if (app.isPackaged) {
-    return join(process.resourcesPath, 'resources/iconTemplate.png')
-  }
-  return join(__dirname, '../../resources/iconTemplate.png')
-}
 
 function addToProfileMenuItem(
   port: PortInfo,
@@ -475,9 +466,10 @@ export function refreshTrayMenus(): void {
 export function createTray(trayHandlers: TrayHandlers): Tray {
   handlers = trayHandlers
 
-  const iconPath = getIconPath()
-  const icon = nativeImage.createFromPath(iconPath)
-  icon.setTemplateImage(true)
+  const icon = loadTrayNativeImage()
+  if (!icon.isEmpty()) {
+    icon.setTemplateImage(true)
+  }
 
   tray = new Tray(icon)
   tray.setToolTip('PortPilot')

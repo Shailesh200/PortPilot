@@ -139,8 +139,8 @@ dist/
 # Agent / local tooling caches
 .prism/
 
-# Alternate package manager lock (npm is canonical)
-bun.lock
+# Alternate package manager lock (Bun is canonical)
+package-lock.json
 
 # macOS
 .DS_Store

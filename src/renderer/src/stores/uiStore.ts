@@ -1,4 +1,5 @@
 import { create } from 'zustand'
+import { persist } from 'zustand/middleware'
 import type { ModuleId, NavLocation, Toast } from '../../../shared/types'
 import { DEFAULT_NAV } from '../../../shared/types'
 
@@ -79,109 +80,120 @@ function rememberNav(
   }
 }
 
-export const useUIStore = create<UIState>((set, get) => ({
-  nav: DEFAULT_NAV,
-  navStack: [],
-  lastPortsNav: null,
-  lastTextNav: null,
-  lastDatabaseNav: null,
-  lastSettingsNav: null,
-  isCommandPaletteOpen: false,
-  isQuickPeekOpen: false,
-  quickPeekPid: null,
-  isWorkspaceImmersive: false,
-  toasts: [],
-  expandedRows: new Set(),
-  confirmDialog: null,
-
-  setNav: (nav, pushStack = true) =>
-    set((s) => ({
-      nav,
-      navStack: pushStack
-        ? [...s.navStack.slice(-7), s.nav]
-        : s.navStack,
+export const useUIStore = create<UIState>()(
+  persist(
+    (set, get) => ({
+      nav: DEFAULT_NAV,
+      navStack: [],
+      lastPortsNav: null,
+      lastTextNav: null,
+      lastDatabaseNav: null,
+      lastSettingsNav: null,
+      isCommandPaletteOpen: false,
+      isQuickPeekOpen: false,
+      quickPeekPid: null,
       isWorkspaceImmersive: false,
-      ...rememberNav(nav, s)
-    })),
+      toasts: [],
+      expandedRows: new Set(),
+      confirmDialog: null,
 
-  goBack: () =>
-    set((s) => {
-      if (s.navStack.length === 0) return s
-      const stack = [...s.navStack]
-      const prev = stack.pop()!
-      return {
-        nav: prev,
-        navStack: stack,
-        isWorkspaceImmersive: false,
-        ...rememberNav(prev, s)
-      }
+      setNav: (nav, pushStack = true) =>
+        set((s) => ({
+          nav,
+          navStack: pushStack
+            ? [...s.navStack.slice(-7), s.nav]
+            : s.navStack,
+          isWorkspaceImmersive: false,
+          ...rememberNav(nav, s)
+        })),
+
+      goBack: () =>
+        set((s) => {
+          if (s.navStack.length === 0) return s
+          const stack = [...s.navStack]
+          const prev = stack.pop()!
+          return {
+            nav: prev,
+            navStack: stack,
+            isWorkspaceImmersive: false,
+            ...rememberNav(prev, s)
+          }
+        }),
+
+      openModule: (module) => {
+        const s = get()
+        const restored =
+          module === 'ports'
+            ? s.lastPortsNav
+            : module === 'text'
+              ? s.lastTextNav
+              : module === 'database'
+                ? s.lastDatabaseNav
+                : module === 'settings'
+                  ? s.lastSettingsNav
+                  : null
+        get().setNav(restored ?? defaultForModule(module))
+      },
+
+      toggleCommandPalette: () =>
+        set((s) => ({ isCommandPaletteOpen: !s.isCommandPaletteOpen })),
+
+      closeCommandPalette: () => set({ isCommandPaletteOpen: false }),
+
+      openQuickPeek: (pid) =>
+        set({ isQuickPeekOpen: true, quickPeekPid: pid }),
+
+      closeQuickPeek: () => {
+        set({ isQuickPeekOpen: false, quickPeekPid: null })
+      },
+
+      setWorkspaceImmersive: (value) => set({ isWorkspaceImmersive: value }),
+
+      toggleRowExpansion: (pid) => {
+        const { expandedRows } = get()
+        const next = new Set(expandedRows)
+        if (next.has(pid)) next.delete(pid)
+        else next.add(pid)
+        set({ expandedRows: next })
+      },
+
+      addToast: (toast) => {
+        const id = crypto.randomUUID()
+        set((s) => ({ toasts: [...s.toasts, { ...toast, id }] }))
+        const ms = toast.duration ?? 4000
+        if (ms > 0) {
+          setTimeout(() => get().removeToast(id), ms)
+        }
+      },
+
+      removeToast: (id) =>
+        set((s) => ({ toasts: s.toasts.filter((t) => t.id !== id) })),
+
+      showConfirm: (opts) =>
+        set({
+          confirmDialog: {
+            open: true,
+            title: opts.title,
+            message: opts.message,
+            variant: opts.variant || 'danger',
+            confirmLabel: opts.confirmLabel || 'Confirm',
+            onConfirm: opts.onConfirm
+          }
+        }),
+
+      hideConfirm: () => set({ confirmDialog: null })
     }),
-
-  openModule: (module) => {
-    const s = get()
-    const restored =
-      module === 'ports'
-        ? s.lastPortsNav
-        : module === 'text'
-          ? s.lastTextNav
-          : module === 'database'
-            ? s.lastDatabaseNav
-            : module === 'settings'
-              ? s.lastSettingsNav
-              : null
-    get().setNav(restored ?? defaultForModule(module))
-  },
-
-  toggleCommandPalette: () =>
-    set((s) => ({ isCommandPaletteOpen: !s.isCommandPaletteOpen })),
-
-  closeCommandPalette: () => set({ isCommandPaletteOpen: false }),
-
-  openQuickPeek: (pid) =>
-    set({ isQuickPeekOpen: true, quickPeekPid: pid }),
-
-  closeQuickPeek: () => {
-    set({ isQuickPeekOpen: false, quickPeekPid: null })
-    // Drop heatmap/table keyboard highlight so the accent ring does not stick
-    // after the modal closes. Lazy import avoids a portStore ↔ uiStore cycle.
-    void import('./portStore').then(({ usePortStore }) => {
-      usePortStore.setState({ selectedIndex: -1 })
-    })
-  },
-
-  setWorkspaceImmersive: (value) => set({ isWorkspaceImmersive: value }),
-
-  toggleRowExpansion: (pid) => {
-    const { expandedRows } = get()
-    const next = new Set(expandedRows)
-    if (next.has(pid)) next.delete(pid)
-    else next.add(pid)
-    set({ expandedRows: next })
-  },
-
-  addToast: (toast) => {
-    const id = crypto.randomUUID()
-    set((s) => ({ toasts: [...s.toasts, { ...toast, id }] }))
-    const ms = toast.duration ?? 4000
-    if (ms > 0) {
-      setTimeout(() => get().removeToast(id), ms)
+    {
+      name: 'portpilot-ui',
+      // First paint uses DEFAULT_NAV; App.tsx calls rehydrate() after idle.
+      skipHydration: true,
+      partialize: (s) => ({
+        nav: s.nav,
+        lastPortsNav: s.lastPortsNav,
+        lastTextNav: s.lastTextNav,
+        lastDatabaseNav: s.lastDatabaseNav,
+        lastSettingsNav: s.lastSettingsNav
+      })
     }
-  },
-
-  removeToast: (id) =>
-    set((s) => ({ toasts: s.toasts.filter((t) => t.id !== id) })),
-
-  showConfirm: (opts) =>
-    set({
-      confirmDialog: {
-        open: true,
-        title: opts.title,
-        message: opts.message,
-        variant: opts.variant || 'danger',
-        confirmLabel: opts.confirmLabel || 'Confirm',
-        onConfirm: opts.onConfirm
-      }
-    }),
-
-  hideConfirm: () => set({ confirmDialog: null })
-}))
+  )
+)

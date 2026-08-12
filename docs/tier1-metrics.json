@@ -1,0 +1,132 @@
+{
+  "captured": "2026-08-12T12:17Z",
+  "stack": {
+    "electron": "35.7.5",
+    "react": "19.2.8",
+    "vite": "6.4.3",
+    "electron-vite": "5.0.0",
+    "tailwindcss": "4.3.3",
+    "zustand": "5.0.14",
+    "lucide-react": "1.31.0",
+    "packageManager": "bun@1.3.11"
+  },
+  "build": {
+    "typecheck_warm_s": 0.57,
+    "build_s": 6.95,
+    "bun_frozen_install_s": 1.09,
+    "node_modules_mb": 408,
+    "out_mb": 7.3,
+    "primary_js_raw_mb": 5.06,
+    "primary_js_gzip_mb": 1.09,
+    "css_kb": 86.68
+  },
+  "runs": [
+    {
+      "run": 1,
+      "wall_to_show_ms": 1219.4,
+      "bench": {
+        "whenReady": 157,
+        "did-finish-load": 411,
+        "ready-to-show": 430,
+        "show": 581
+      },
+      "idle_rss_mb": 432.7,
+      "breakdown": [
+        [
+          "main",
+          166.0
+        ],
+        [
+          "crashpad",
+          7.3
+        ],
+        [
+          "gpu",
+          83.6
+        ],
+        [
+          "utility",
+          39.5
+        ],
+        [
+          "renderer",
+          136.3
+        ]
+      ]
+    },
+    {
+      "run": 2,
+      "wall_to_show_ms": 958.8,
+      "bench": {
+        "whenReady": 119,
+        "did-finish-load": 364,
+        "ready-to-show": 371,
+        "show": 453
+      },
+      "idle_rss_mb": 440.7,
+      "breakdown": [
+        [
+          "main",
+          163.0
+        ],
+        [
+          "crashpad",
+          7.3
+        ],
+        [
+          "gpu",
+          90.3
+        ],
+        [
+          "utility",
+          39.1
+        ],
+        [
+          "renderer",
+          140.9
+        ]
+      ]
+    },
+    {
+      "run": 3,
+      "wall_to_show_ms": 840.0,
+      "bench": {
+        "whenReady": 107,
+        "did-finish-load": 341,
+        "ready-to-show": 348,
+        "show": 431
+      },
+      "idle_rss_mb": 405.6,
+      "breakdown": [
+        [
+          "main",
+          155.8
+        ],
+        [
+          "crashpad",
+          7.3
+        ],
+        [
+          "gpu",
+          74.5
+        ],
+        [
+          "utility",
+          38.6
+        ],
+        [
+          "renderer",
+          129.4
+        ]
+      ]
+    }
+  ],
+  "summary": {
+    "avg_wall_to_show_ms": 1006.1,
+    "avg_whenReady_ms": 127.7,
+    "avg_show_from_mainjs_ms": 488.3,
+    "avg_idle_rss_mb": 426.3,
+    "min_wall_ms": 840.0,
+    "max_wall_ms": 1219.4
+  }
+}

@@ -1,18 +1,41 @@
-import { useEffect, useCallback, useRef } from 'react'
+import { useEffect, useCallback, useRef, lazy, Suspense } from 'react'
 import { usePortStore } from './stores/portStore'
 import { useUIStore } from './stores/uiStore'
 import { useSettingsStore } from './stores/settingsStore'
 import { Sidebar } from './components/Sidebar'
 import { TitleBar } from './components/TitleBar'
-import { Settings } from './components/Settings'
-import { CommandPalette } from './components/CommandPalette'
-import { QuickPeek } from './components/QuickPeek'
 import { ToastContainer } from './components/Toast'
 import { ConfirmDialog } from './components/ConfirmDialog'
 import { useKeyboardShortcuts } from './hooks/useKeyboardShortcuts'
 import { PortsModule } from './modules/ports/PortsModule'
-import { TextModule } from './modules/text/TextModule'
-import { DatabaseModule } from './modules/database/DatabaseModule'
+
+const Settings = lazy(() =>
+  import('./components/Settings').then((m) => ({ default: m.Settings }))
+)
+const TextModule = lazy(() =>
+  import('./modules/text/TextModule').then((m) => ({ default: m.TextModule }))
+)
+const DatabaseModule = lazy(() =>
+  import('./modules/database/DatabaseModule').then((m) => ({
+    default: m.DatabaseModule
+  }))
+)
+const CommandPalette = lazy(() =>
+  import('./components/CommandPalette').then((m) => ({
+    default: m.CommandPalette
+  }))
+)
+const QuickPeek = lazy(() =>
+  import('./components/QuickPeek').then((m) => ({ default: m.QuickPeek }))
+)
+
+function ModuleFallback() {
+  return (
+    <div className="flex h-full w-full items-center justify-center text-sm text-text-muted">
+      Loading…
+    </div>
+  )
+}
 
 function applyActiveProfileFilter(): void {
   const { activeProfileId, profiles } = useSettingsStore.getState()
@@ -27,7 +50,6 @@ function applyActiveProfileFilter(): void {
 }
 
 export default function App() {
-  const fetchPorts = usePortStore((s) => s.fetchPorts)
   const setPorts = usePortStore((s) => s.setPorts)
   const nav = useUIStore((s) => s.nav)
   const isCommandPaletteOpen = useUIStore((s) => s.isCommandPaletteOpen)
@@ -47,6 +69,38 @@ export default function App() {
   const isWorkspaceImmersive = useUIStore((s) => s.isWorkspaceImmersive)
 
   useKeyboardShortcuts()
+
+  // Persist nav across sessions, but hydrate AFTER first paint so cold start
+  // always begins on the light Ports shell (DEFAULT_NAV).
+  useEffect(() => {
+    let cancelled = false
+    const restore = (): void => {
+      if (cancelled) return
+      void useUIStore.persist.rehydrate()
+    }
+    const ric = (
+      window as Window & {
+        requestIdleCallback?: (cb: () => void, opts?: { timeout: number }) => number
+        cancelIdleCallback?: (id: number) => void
+      }
+    ).requestIdleCallback
+    let idleId: number | undefined
+    let timeoutId: ReturnType<typeof setTimeout> | undefined
+    if (typeof ric === 'function') {
+      idleId = ric(restore, { timeout: 1200 })
+    } else {
+      timeoutId = setTimeout(restore, 0)
+    }
+    return () => {
+      cancelled = true
+      if (idleId != null) {
+        ;(
+          window as Window & { cancelIdleCallback?: (id: number) => void }
+        ).cancelIdleCallback?.(idleId)
+      }
+      if (timeoutId != null) clearTimeout(timeoutId)
+    }
+  }, [])
 
   useEffect(() => {
     void window.api.loadProfiles().then((data) => {
@@ -178,7 +232,7 @@ export default function App() {
   const highMemAlertedRef = useRef<Set<number>>(new Set())
 
   useEffect(() => {
-    fetchPorts()
+    // Initial ports arrive from main's poll (interval 0); avoid a duplicate scan.
     const cleanupPorts = window.api.onPortsUpdate((ports) => {
       setPorts(ports)
 
@@ -225,7 +279,7 @@ export default function App() {
       cleanupPorts()
       cleanupSearch()
     }
-  }, [fetchPorts, setPorts])
+  }, [setPorts])
 
   const renderView = useCallback(() => {
     switch (nav.module) {
@@ -253,10 +307,20 @@ export default function App() {
         }
       >
         {!isWorkspaceImmersive && <Sidebar />}
-        <main className="flex-1 overflow-hidden min-w-0">{renderView()}</main>
+        <main className="flex-1 overflow-hidden min-w-0">
+          <Suspense fallback={<ModuleFallback />}>{renderView()}</Suspense>
+        </main>
       </div>
-      {isCommandPaletteOpen && <CommandPalette />}
-      {isQuickPeekOpen && <QuickPeek />}
+      {isCommandPaletteOpen && (
+        <Suspense fallback={null}>
+          <CommandPalette />
+        </Suspense>
+      )}
+      {isQuickPeekOpen && (
+        <Suspense fallback={null}>
+          <QuickPeek />
+        </Suspense>
+      )}
       <ToastContainer />
       {confirmDialog && (
         <ConfirmDialog

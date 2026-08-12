@@ -1,3 +1,4 @@
+import { lazy, Suspense } from 'react'
 import {
   Braces,
   FileDiff,
@@ -12,12 +13,6 @@ import type { TextToolId } from '../../../../shared/types'
 import { useUIStore } from '../../stores/uiStore'
 import { CategoryLanding } from '../../shell/CategoryLanding'
 import { ModuleFrame } from '../../shell/ModuleFrame'
-import { JsonFormatter } from './tools/JsonFormatter'
-import { JsonDiff } from './tools/JsonDiff'
-import { JsConsole } from './tools/JsConsole'
-import { TextDiff } from './tools/TextDiff'
-import { FormatConverter } from './tools/FormatConverter'
-import { ClipboardModule } from '../clipboard/ClipboardModule'
 
 /** DevBench Text & Data category accent */
 const TEXT_ACCENT = '#4F8CFF'
@@ -29,6 +24,35 @@ const TOOL_ICONS: Record<TextToolId, LucideIcon> = {
   'text-diff': Columns2,
   'format-converter': ArrowLeftRight,
   clipboard: Clipboard
+}
+
+const JsonFormatter = lazy(() =>
+  import('./tools/JsonFormatter').then((m) => ({ default: m.JsonFormatter }))
+)
+const JsonDiff = lazy(() =>
+  import('./tools/JsonDiff').then((m) => ({ default: m.JsonDiff }))
+)
+const JsConsole = lazy(() =>
+  import('./tools/JsConsole').then((m) => ({ default: m.JsConsole }))
+)
+const TextDiff = lazy(() =>
+  import('./tools/TextDiff').then((m) => ({ default: m.TextDiff }))
+)
+const FormatConverter = lazy(() =>
+  import('./tools/FormatConverter').then((m) => ({ default: m.FormatConverter }))
+)
+const ClipboardModule = lazy(() =>
+  import('../clipboard/ClipboardModule').then((m) => ({
+    default: m.ClipboardModule
+  }))
+)
+
+function ToolFallback() {
+  return (
+    <div className="flex h-full w-full items-center justify-center text-sm text-text-muted">
+      Loading tool…
+    </div>
+  )
 }
 
 function renderTool(id: TextToolId) {
@@ -91,7 +115,11 @@ export function TextModule() {
 
   // Clipboard owns its ModuleFrame.
   if (screen === 'clipboard') {
-    return <ClipboardModule />
+    return (
+      <Suspense fallback={<ToolFallback />}>
+        <ClipboardModule />
+      </Suspense>
+    )
   }
 
   const workspaceTools: TextToolId[] = [
@@ -114,7 +142,9 @@ export function TextModule() {
       backLabel="Text & Data"
       onBack={goTextHome}
     >
-      {renderTool(screen as TextToolId)}
+      <Suspense fallback={<ToolFallback />}>
+        {renderTool(screen as TextToolId)}
+      </Suspense>
     </ModuleFrame>
   )
 }

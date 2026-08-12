@@ -19,6 +19,37 @@ async function execFileSafe(
 
 const CRITICAL_PORTS = new Set([22, 53, 80, 443, 631, 5432, 3306, 6379, 27017])
 
+/** Cache project-path enrichment — paths change rarely vs CPU/mem every poll. */
+const PROJECT_PATH_CACHE_MS = 15_000
+const projectPathCache = new Map<number, { path: string; at: number }>()
+
+function getCachedProjectPath(pid: number): string | null {
+  const hit = projectPathCache.get(pid)
+  if (!hit) return null
+  if (Date.now() - hit.at > PROJECT_PATH_CACHE_MS) return null
+  return hit.path
+}
+
+function setCachedProjectPath(pid: number, path: string): void {
+  projectPathCache.set(pid, { path, at: Date.now() })
+}
+
+function pruneProjectPathCache(livePids: Iterable<number>): void {
+  const live = new Set(livePids)
+  for (const pid of projectPathCache.keys()) {
+    if (!live.has(pid)) projectPathCache.delete(pid)
+  }
+}
+
+function applyProjectPath(port: PortInfo, cwd: string): void {
+  if (cwd && cwd !== '/' && cwd !== '\\') {
+    port.projectPath = cwd
+    port.projectName = extractProjectName(cwd, port.command)
+  } else {
+    port.projectName = port.command
+  }
+}
+
 /** Single definition across platforms: well-known service ports + system range. */
 function isCriticalPort(port: number): boolean {
   return port < 1024 || CRITICAL_PORTS.has(port)
@@ -92,6 +123,7 @@ async function scanPortsDarwin(): Promise<PortInfo[]> {
         enrichWithProjectNames(ports)
       ])
     }
+    pruneProjectPathCache(ports.map((p) => p.pid))
 
     return ports.sort((a, b) => a.port - b.port)
   } catch {
@@ -173,7 +205,7 @@ async function scanPortsWindows(): Promise<PortInfo[]> {
 
     const procMap = await getWindowsProcessMap()
 
-    return entries
+    const ports = entries
       .map(({ pid, port, address }) => {
         const info = procMap.get(pid)
         return {
@@ -195,6 +227,10 @@ async function scanPortsWindows(): Promise<PortInfo[]> {
         }
       })
       .sort((a, b) => a.port - b.port)
+
+    await enrichWindowsProjectPaths(ports)
+    pruneProjectPathCache(ports.map((p) => p.pid))
+    return ports
   } catch {
     return []
   }
@@ -254,22 +290,32 @@ async function scanPortsLinux(): Promise<PortInfo[]> {
       })
     }
 
-    return entries
+    const ports = entries
       .map(({ pid, port, address }) => {
         const info = procMap.get(pid)
         const command = info?.command || 'unknown'
 
-        // readlinkSync on /proc — no subprocess spawn per pid.
         let projectPath = ''
         let projectName = command
-        try {
-          const cwd = readlinkSync(`/proc/${pid}/cwd`)
-          if (cwd && cwd !== '/') {
-            projectPath = cwd
-            projectName = extractProjectName(cwd, command)
+        const cached = getCachedProjectPath(pid)
+        if (cached != null) {
+          projectPath = cached
+          projectName = cached
+            ? extractProjectName(cached, command)
+            : command
+        } else {
+          try {
+            const cwd = readlinkSync(`/proc/${pid}/cwd`)
+            if (cwd && cwd !== '/') {
+              projectPath = cwd
+              projectName = extractProjectName(cwd, command)
+              setCachedProjectPath(pid, cwd)
+            } else {
+              setCachedProjectPath(pid, '')
+            }
+          } catch {
+            setCachedProjectPath(pid, '')
           }
-        } catch {
-          /* process gone or no permission */
         }
 
         return {
@@ -291,8 +337,61 @@ async function scanPortsLinux(): Promise<PortInfo[]> {
         }
       })
       .sort((a, b) => a.port - b.port)
+    pruneProjectPathCache(ports.map((p) => p.pid))
+    return ports
   } catch {
     return []
+  }
+}
+
+async function enrichWindowsProjectPaths(
+  ports: PortInfo[]
+): Promise<void> {
+  const pids = [...new Set(ports.map((p) => p.pid))]
+  const stale = pids.filter((pid) => getCachedProjectPath(pid) == null)
+  for (const port of ports) {
+    const cached = getCachedProjectPath(port.pid)
+    if (cached != null) applyProjectPath(port, cached)
+  }
+  if (stale.length === 0) return
+
+  // One PowerShell call for ExecutablePath of all stale pids.
+  const filter = stale.map((p) => `ProcessId=${p}`).join(' OR ')
+  const { stdout } = await execFileSafe('powershell', [
+    '-NoProfile',
+    '-NonInteractive',
+    '-Command',
+    `Get-CimInstance Win32_Process -Filter "${filter}" | Select-Object ProcessId, ExecutablePath | ConvertTo-Json -Compress`
+  ])
+  if (!stdout.trim()) {
+    for (const pid of stale) setCachedProjectPath(pid, '')
+    return
+  }
+  try {
+    const parsed = JSON.parse(stdout) as
+      | { ProcessId: number; ExecutablePath?: string }
+      | { ProcessId: number; ExecutablePath?: string }[]
+    const rows = Array.isArray(parsed) ? parsed : [parsed]
+    const map = new Map<number, string>()
+    for (const row of rows) {
+      const exe = row.ExecutablePath || ''
+      // Use directory of the executable as a stand-in for cwd on Windows.
+      const dir = exe.includes('\\')
+        ? exe.slice(0, exe.lastIndexOf('\\'))
+        : exe.includes('/')
+          ? exe.slice(0, exe.lastIndexOf('/'))
+          : ''
+      map.set(row.ProcessId, dir)
+    }
+    for (const pid of stale) {
+      setCachedProjectPath(pid, map.get(pid) || '')
+    }
+    for (const port of ports) {
+      const cached = getCachedProjectPath(port.pid)
+      if (cached != null) applyProjectPath(port, cached)
+    }
+  } catch {
+    for (const pid of stale) setCachedProjectPath(pid, '')
   }
 }
 
@@ -338,11 +437,20 @@ async function enrichWithProjectNames(ports: PortInfo[]): Promise<void> {
   const pids = [...new Set(ports.map((p) => p.pid))]
   if (pids.length === 0) return
 
+  const stalePids = pids.filter((pid) => getCachedProjectPath(pid) == null)
+
+  for (const port of ports) {
+    const cached = getCachedProjectPath(port.pid)
+    if (cached != null) applyProjectPath(port, cached)
+  }
+
+  if (stalePids.length === 0) return
+
   try {
     const { stdout } = await execFileSafe('lsof', [
       '-a',
       '-p',
-      pids.join(','),
+      stalePids.join(','),
       '-d',
       'cwd',
       '-Fp',
@@ -365,18 +473,22 @@ async function enrichWithProjectNames(ports: PortInfo[]): Promise<void> {
       }
     }
 
+    for (const pid of stalePids) {
+      const cwd = pidCwdMap.get(pid) || ''
+      setCachedProjectPath(pid, cwd === '/' ? '' : cwd)
+    }
+
     for (const port of ports) {
-      const cwd = pidCwdMap.get(port.pid)
-      if (cwd && cwd !== '/') {
-        port.projectPath = cwd
-        port.projectName = extractProjectName(cwd, port.command)
-      } else {
+      const hit = projectPathCache.get(port.pid)
+      if (!hit) {
         port.projectName = port.command
+        continue
       }
+      applyProjectPath(port, hit.path)
     }
   } catch {
     for (const port of ports) {
-      port.projectName = port.command
+      if (!port.projectName) port.projectName = port.command
     }
   }
 }
@@ -391,18 +503,19 @@ const GENERIC_SUBDIRS = new Set([
 ])
 
 function extractProjectName(cwd: string, command: string): string {
-  const home = process.env.HOME || ''
+  const home = process.env.HOME || process.env.USERPROFILE || ''
+  const normalized = cwd.replace(/\\/g, '/')
 
   const skipDirs = new Set([
     '/', '/usr', '/usr/local', '/usr/local/bin', '/tmp', '/var',
-    '/opt', '/opt/homebrew', home
+    '/opt', '/opt/homebrew', home.replace(/\\/g, '/')
   ])
 
-  if (skipDirs.has(cwd)) {
+  if (skipDirs.has(normalized)) {
     return command
   }
 
-  const segments = cwd.split('/').filter(Boolean)
+  const segments = normalized.split('/').filter(Boolean)
 
   for (let i = segments.length - 1; i >= 1; i--) {
     const dir = segments[i]

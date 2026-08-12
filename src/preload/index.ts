@@ -8,76 +8,77 @@ import type {
   TextSnapshot,
   NavLocation
 } from '../shared/types'
+import { IpcChannel, IpcEvent } from '../shared/ipc'
 
 const api: IpcApi = {
-  getPorts: () => ipcRenderer.invoke('get-ports'),
-  getProcessDetails: (pid: number) => ipcRenderer.invoke('get-process-details', pid),
+  getPorts: () => ipcRenderer.invoke(IpcChannel.getPorts),
+  getProcessDetails: (pid: number) => ipcRenderer.invoke(IpcChannel.getProcessDetails, pid),
   killProcess: (pid: number, force?: boolean) =>
-    ipcRenderer.invoke('kill-process', pid, force),
-  killProcesses: (pids: number[]) => ipcRenderer.invoke('kill-processes', pids),
-  openInBrowser: (port: number) => ipcRenderer.invoke('open-in-browser', port),
+    ipcRenderer.invoke(IpcChannel.killProcess, pid, force),
+  killProcesses: (pids: number[]) => ipcRenderer.invoke(IpcChannel.killProcesses, pids),
+  openInBrowser: (port: number) => ipcRenderer.invoke(IpcChannel.openInBrowser, port),
   openInTerminal: (pid: number, projectPath?: string) =>
-    ipcRenderer.invoke('open-in-terminal', pid, projectPath),
+    ipcRenderer.invoke(IpcChannel.openInTerminal, pid, projectPath),
   openInVSCode: (pid: number, projectPath?: string) =>
-    ipcRenderer.invoke('open-in-vscode', pid, projectPath),
+    ipcRenderer.invoke(IpcChannel.openInVscode, pid, projectPath),
   restartProcess: (pid: number, projectPath?: string) =>
-    ipcRenderer.invoke('restart-process', pid, projectPath),
+    ipcRenderer.invoke(IpcChannel.restartProcess, pid, projectPath),
   updatePollInterval: (intervalMs: number) =>
-    ipcRenderer.invoke('update-poll-interval', intervalMs),
+    ipcRenderer.invoke(IpcChannel.updatePollInterval, intervalMs),
   updateGlobalShortcut: (shortcut: string) =>
-    ipcRenderer.invoke('update-global-shortcut', shortcut),
+    ipcRenderer.invoke(IpcChannel.updateGlobalShortcut, shortcut),
   updateSafetySettings: (settings) =>
-    ipcRenderer.invoke('update-safety-settings', settings),
+    ipcRenderer.invoke(IpcChannel.updateSafetySettings, settings),
   updateAlertSettings: (settings) =>
-    ipcRenderer.invoke('update-alert-settings', settings),
-  loadProfiles: () => ipcRenderer.invoke('load-profiles'),
+    ipcRenderer.invoke(IpcChannel.updateAlertSettings, settings),
+  loadProfiles: () => ipcRenderer.invoke(IpcChannel.loadProfiles),
   saveProfiles: (state: ProfilesPersistState) =>
-    ipcRenderer.invoke('save-profiles', state),
-  getAppVersion: () => ipcRenderer.invoke('get-app-version'),
-  quitAndInstall: () => ipcRenderer.invoke('quit-and-install'),
+    ipcRenderer.invoke(IpcChannel.saveProfiles, state),
+  getAppVersion: () => ipcRenderer.invoke(IpcChannel.getAppVersion),
+  quitAndInstall: () => ipcRenderer.invoke(IpcChannel.quitAndInstall),
   onPortsUpdate: (callback: (ports: PortInfo[]) => void) => {
     const handler = (_event: Electron.IpcRendererEvent, ports: PortInfo[]) =>
       callback(ports)
-    ipcRenderer.on('ports-updated', handler)
+    ipcRenderer.on(IpcEvent.portsUpdated, handler)
     return () => {
-      ipcRenderer.removeListener('ports-updated', handler)
+      ipcRenderer.removeListener(IpcEvent.portsUpdated, handler)
     }
   },
   onFocusSearch: (callback: () => void) => {
     const handler = () => callback()
-    ipcRenderer.on('focus-search', handler)
+    ipcRenderer.on(IpcEvent.focusSearch, handler)
     return () => {
-      ipcRenderer.removeListener('focus-search', handler)
+      ipcRenderer.removeListener(IpcEvent.focusSearch, handler)
     }
   },
   onProfilesChanged: (callback: () => void) => {
     const handler = () => callback()
-    ipcRenderer.on('profiles-changed', handler)
+    ipcRenderer.on(IpcEvent.profilesChanged, handler)
     return () => {
-      ipcRenderer.removeListener('profiles-changed', handler)
+      ipcRenderer.removeListener(IpcEvent.profilesChanged, handler)
     }
   },
   onOpenProfileCreator: (callback: () => void) => {
     const handler = () => callback()
-    ipcRenderer.on('open-profile-creator', handler)
+    ipcRenderer.on(IpcEvent.openProfileCreator, handler)
     return () => {
-      ipcRenderer.removeListener('open-profile-creator', handler)
+      ipcRenderer.removeListener(IpcEvent.openProfileCreator, handler)
     }
   },
   onNavigateTo: (callback) => {
     const handler = (_e: Electron.IpcRendererEvent, nav: NavLocation) =>
       callback(nav)
-    ipcRenderer.on('navigate-to', handler)
+    ipcRenderer.on(IpcEvent.navigateTo, handler)
     return () => {
-      ipcRenderer.removeListener('navigate-to', handler)
+      ipcRenderer.removeListener(IpcEvent.navigateTo, handler)
     }
   },
   onUpdateStatus: (callback: (info: UpdateInfo) => void) => {
     const handler = (_event: Electron.IpcRendererEvent, info: UpdateInfo) =>
       callback(info)
-    ipcRenderer.on('update-status', handler)
+    ipcRenderer.on(IpcEvent.updateStatus, handler)
     return () => {
-      ipcRenderer.removeListener('update-status', handler)
+      ipcRenderer.removeListener(IpcEvent.updateStatus, handler)
     }
   },
   onAppToast: (callback) => {
@@ -89,92 +90,92 @@ const api: IpcApi = {
         message?: string
       }
     ) => callback(toast)
-    ipcRenderer.on('app-toast', handler)
+    ipcRenderer.on(IpcEvent.appToast, handler)
     return () => {
-      ipcRenderer.removeListener('app-toast', handler)
+      ipcRenderer.removeListener(IpcEvent.appToast, handler)
     }
   },
 
-  clipboardGetHistory: () => ipcRenderer.invoke('clipboard-get-history'),
+  clipboardGetHistory: () => ipcRenderer.invoke(IpcChannel.clipboardGetHistory),
   clipboardSetCapture: (enabled) =>
-    ipcRenderer.invoke('clipboard-set-capture', enabled),
+    ipcRenderer.invoke(IpcChannel.clipboardSetCapture, enabled),
   clipboardIsCaptureEnabled: () =>
-    ipcRenderer.invoke('clipboard-is-capture-enabled'),
-  clipboardPin: (id, pinned) => ipcRenderer.invoke('clipboard-pin', id, pinned),
-  clipboardDelete: (id) => ipcRenderer.invoke('clipboard-delete', id),
+    ipcRenderer.invoke(IpcChannel.clipboardIsCaptureEnabled),
+  clipboardPin: (id, pinned) => ipcRenderer.invoke(IpcChannel.clipboardPin, id, pinned),
+  clipboardDelete: (id) => ipcRenderer.invoke(IpcChannel.clipboardDelete, id),
   clipboardClear: (keepPinned) =>
-    ipcRenderer.invoke('clipboard-clear', keepPinned),
-  clipboardWrite: (text) => ipcRenderer.invoke('clipboard-write', text),
+    ipcRenderer.invoke(IpcChannel.clipboardClear, keepPinned),
+  clipboardWrite: (text) => ipcRenderer.invoke(IpcChannel.clipboardWrite, text),
   onClipboardUpdate: (callback) => {
     const handler = (
       _e: Electron.IpcRendererEvent,
       items: ClipboardItem[]
     ) => callback(items)
-    ipcRenderer.on('clipboard-updated', handler)
-    return () => ipcRenderer.removeListener('clipboard-updated', handler)
+    ipcRenderer.on(IpcEvent.clipboardUpdated, handler)
+    return () => ipcRenderer.removeListener(IpcEvent.clipboardUpdated, handler)
   },
 
-  dbListConnections: () => ipcRenderer.invoke('db-list-connections'),
-  dbListLive: () => ipcRenderer.invoke('db-list-live'),
+  dbListConnections: () => ipcRenderer.invoke(IpcChannel.dbListConnections),
+  dbListLive: () => ipcRenderer.invoke(IpcChannel.dbListLive),
   dbSaveConnection: (profile) =>
-    ipcRenderer.invoke('db-save-connection', profile),
-  dbDeleteConnection: (id) => ipcRenderer.invoke('db-delete-connection', id),
-  dbConnect: (id) => ipcRenderer.invoke('db-connect', id),
-  dbDisconnect: (id) => ipcRenderer.invoke('db-disconnect', id),
-  dbQuery: (id, sql, opts) => ipcRenderer.invoke('db-query', id, sql, opts),
-  dbTables: (id) => ipcRenderer.invoke('db-tables', id),
+    ipcRenderer.invoke(IpcChannel.dbSaveConnection, profile),
+  dbDeleteConnection: (id) => ipcRenderer.invoke(IpcChannel.dbDeleteConnection, id),
+  dbConnect: (id) => ipcRenderer.invoke(IpcChannel.dbConnect, id),
+  dbDisconnect: (id) => ipcRenderer.invoke(IpcChannel.dbDisconnect, id),
+  dbQuery: (id, sql, opts) => ipcRenderer.invoke(IpcChannel.dbQuery, id, sql, opts),
+  dbTables: (id) => ipcRenderer.invoke(IpcChannel.dbTables, id),
   dbTableSchema: (id, table) =>
-    ipcRenderer.invoke('db-table-schema', id, table),
+    ipcRenderer.invoke(IpcChannel.dbTableSchema, id, table),
   dbBrowseTable: (id, table, opts) =>
-    ipcRenderer.invoke('db-browse-table', id, table, opts),
-  dbAnalyzeSql: (sql) => ipcRenderer.invoke('db-analyze-sql', sql),
+    ipcRenderer.invoke(IpcChannel.dbBrowseTable, id, table, opts),
+  dbAnalyzeSql: (sql) => ipcRenderer.invoke(IpcChannel.dbAnalyzeSql, sql),
   dbExplain: (id, sql, analyze) =>
-    ipcRenderer.invoke('db-explain', id, sql, analyze),
+    ipcRenderer.invoke(IpcChannel.dbExplain, id, sql, analyze),
   dbSavedQueries: (connectionId) =>
-    ipcRenderer.invoke('db-saved-queries', connectionId),
-  dbSaveQuery: (input) => ipcRenderer.invoke('db-save-query', input),
-  dbDeleteSavedQuery: (id) => ipcRenderer.invoke('db-delete-saved-query', id),
-  dbTableDdl: (id, table) => ipcRenderer.invoke('db-table-ddl', id, table),
-  dbUpdateCell: (id, input) => ipcRenderer.invoke('db-update-cell', id, input),
-  dbInsertRow: (id, input) => ipcRenderer.invoke('db-insert-row', id, input),
-  dbImportCsv: (id, input) => ipcRenderer.invoke('db-import-csv', id, input),
-  dbRedisKeys: (id, opts) => ipcRenderer.invoke('db-redis-keys', id, opts),
-  dbRedisKey: (id, key) => ipcRenderer.invoke('db-redis-key', id, key),
-  dbHistory: (connectionId) => ipcRenderer.invoke('db-history', connectionId),
-  dbPickSqliteFile: () => ipcRenderer.invoke('db-pick-sqlite-file'),
-  dbPickSshKey: () => ipcRenderer.invoke('db-pick-ssh-key'),
-  dbGetAccessInfo: (id) => ipcRenderer.invoke('db-access-info', id),
+    ipcRenderer.invoke(IpcChannel.dbSavedQueries, connectionId),
+  dbSaveQuery: (input) => ipcRenderer.invoke(IpcChannel.dbSaveQuery, input),
+  dbDeleteSavedQuery: (id) => ipcRenderer.invoke(IpcChannel.dbDeleteSavedQuery, id),
+  dbTableDdl: (id, table) => ipcRenderer.invoke(IpcChannel.dbTableDdl, id, table),
+  dbUpdateCell: (id, input) => ipcRenderer.invoke(IpcChannel.dbUpdateCell, id, input),
+  dbInsertRow: (id, input) => ipcRenderer.invoke(IpcChannel.dbInsertRow, id, input),
+  dbImportCsv: (id, input) => ipcRenderer.invoke(IpcChannel.dbImportCsv, id, input),
+  dbRedisKeys: (id, opts) => ipcRenderer.invoke(IpcChannel.dbRedisKeys, id, opts),
+  dbRedisKey: (id, key) => ipcRenderer.invoke(IpcChannel.dbRedisKey, id, key),
+  dbHistory: (connectionId) => ipcRenderer.invoke(IpcChannel.dbHistory, connectionId),
+  dbPickSqliteFile: () => ipcRenderer.invoke(IpcChannel.dbPickSqliteFile),
+  dbPickSshKey: () => ipcRenderer.invoke(IpcChannel.dbPickSshKey),
+  dbGetAccessInfo: (id) => ipcRenderer.invoke(IpcChannel.dbAccessInfo, id),
 
-  windowIsFullScreen: () => ipcRenderer.invoke('window-is-full-screen'),
+  windowIsFullScreen: () => ipcRenderer.invoke(IpcChannel.windowIsFullScreen),
   windowSetFullScreen: (flag) =>
-    ipcRenderer.invoke('window-set-full-screen', flag),
-  windowToggleFullScreen: () => ipcRenderer.invoke('window-toggle-full-screen'),
+    ipcRenderer.invoke(IpcChannel.windowSetFullScreen, flag),
+  windowToggleFullScreen: () => ipcRenderer.invoke(IpcChannel.windowToggleFullScreen),
   onWindowFullScreenChange: (callback) => {
     const handler = (
       _e: Electron.IpcRendererEvent,
       isFullScreen: boolean
     ) => callback(isFullScreen)
-    ipcRenderer.on('window-full-screen-changed', handler)
+    ipcRenderer.on(IpcEvent.windowFullScreenChanged, handler)
     return () =>
-      ipcRenderer.removeListener('window-full-screen-changed', handler)
+      ipcRenderer.removeListener(IpcEvent.windowFullScreenChanged, handler)
   },
 
-  textSnapshotsList: (tool) => ipcRenderer.invoke('text-snapshots-list', tool),
-  textSnapshotsSave: (input) => ipcRenderer.invoke('text-snapshots-save', input),
+  textSnapshotsList: (tool) => ipcRenderer.invoke(IpcChannel.textSnapshotsList, tool),
+  textSnapshotsSave: (input) => ipcRenderer.invoke(IpcChannel.textSnapshotsSave, input),
   textSnapshotsUpdateLabel: (id, label) =>
-    ipcRenderer.invoke('text-snapshots-update-label', id, label),
-  textSnapshotsDelete: (id) => ipcRenderer.invoke('text-snapshots-delete', id),
+    ipcRenderer.invoke(IpcChannel.textSnapshotsUpdateLabel, id, label),
+  textSnapshotsDelete: (id) => ipcRenderer.invoke(IpcChannel.textSnapshotsDelete, id),
   onTextSnapshotsUpdate: (callback) => {
     const handler = (
       _e: Electron.IpcRendererEvent,
       items: TextSnapshot[]
     ) => callback(items)
-    ipcRenderer.on('text-snapshots-updated', handler)
-    return () => ipcRenderer.removeListener('text-snapshots-updated', handler)
+    ipcRenderer.on(IpcEvent.textSnapshotsUpdated, handler)
+    return () => ipcRenderer.removeListener(IpcEvent.textSnapshotsUpdated, handler)
   },
 
-  saveTextFile: (payload) => ipcRenderer.invoke('save-text-file', payload),
-  saveHtmlAsPdf: (payload) => ipcRenderer.invoke('save-html-as-pdf', payload)
+  saveTextFile: (payload) => ipcRenderer.invoke(IpcChannel.saveTextFile, payload),
+  saveHtmlAsPdf: (payload) => ipcRenderer.invoke(IpcChannel.saveHtmlAsPdf, payload)
 }
 
 contextBridge.exposeInMainWorld('api', api)

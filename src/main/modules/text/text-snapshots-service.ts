@@ -18,6 +18,7 @@ import type {
 
 const MAX_ITEMS = 100
 let snapshots: TextSnapshot[] = []
+let snapshotsLoaded = false
 
 function filePath(): string {
   return join(app.getPath('userData'), 'text-tool-snapshots.json')
@@ -99,6 +100,8 @@ function normalizeItem(raw: unknown): TextSnapshot | null {
 }
 
 export function loadTextSnapshots(): TextSnapshot[] {
+  if (snapshotsLoaded) return snapshots
+  snapshotsLoaded = true
   try {
     const p = filePath()
     if (existsSync(p)) {

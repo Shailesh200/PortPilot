@@ -1,0 +1,20 @@
+{
+  "label": "post-next-items",
+  "primary_js_kb": 728.8,
+  "summary": {
+    "avg_wall_to_show_ms": 1316.2,
+    "avg_whenReady_ms": 217.7,
+    "avg_show_from_mainjs_ms": 588,
+    "avg_idle_rss_mb": 347.0,
+    "min_wall_ms": 896.8,
+    "max_wall_ms": 2073.5
+  },
+  "notes": [
+    "lazy CommandPalette/QuickPeek",
+    "typed IpcChannel/IpcEvent",
+    "os/ fa\u00e7ade + tray resource resolver",
+    "PortTable memo+virtualize, Heatmap memo",
+    "deferred uiStore rehydrate",
+    "Linux/Windows project path cache"
+  ]
+}

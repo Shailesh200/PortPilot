@@ -59,52 +59,60 @@ codesign --force --deep --sign - /Applications/PortPilot.app
 
 | Shortcut | Action |
 |----------|--------|
-| `Cmd + Option + P` | Launch/focus PortPilot (global, works from any app; customizable) |
+| `Cmd + Option + P` | Launch/focus PortPilot (global; customizable in Settings) |
 | `Cmd + K` | Open command palette |
 | `Cmd + ,` | Open settings |
 | `Cmd + 1` | Ports |
 | `Cmd + 2` | Text & Data |
 | `Cmd + 3` | Database |
-| `/` | Focus search (Ports) |
-| `Escape` | Close modals / clear selection |
+| `/` | Focus search (Ports dashboard / heatmap) |
+| `Escape` | Close Quick Peek |
 | `Space` | Quick peek selected port |
 | `K` | Kill selected port |
+| `R` | Restart selected port |
+| `O` | Open selected port in browser |
+| `T` | Open terminal for selected process |
+| `V` | Open project in VS Code / Cursor |
 | `Arrow Up / Down` | Navigate port list |
+| `Arrow Right` | Expand / collapse port row (dashboard) |
+
+> Prefer **Cmd+Option+P** as the global launcher. **Cmd+Shift+P** is VS Code’s command palette — only choose it in Settings if you intentionally want that conflict.
 
 ## Development
 
 ### Prerequisites
 
-- [Node.js](https://nodejs.org/) 22+
+- [Bun](https://bun.sh/) 1.3+
+- [Node.js](https://nodejs.org/) 22+ (used by Electron tooling)
 
 ### Setup
 
 ```bash
 git clone git@github.com:Shailesh200/PortPilot.git
 cd PortPilot
-npm install
+bun install
 ```
 
 ### Run in development
 
 ```bash
-npm run dev
+bun run dev
 ```
 
 ### Build for production
 
 ```bash
-npm run build
+bun run build
 ```
 
 ### Package for distribution
 
 ```bash
 # macOS
-npm run build && npx electron-builder --mac
+bun run build && bunx electron-builder --mac
 
 # Windows
-npm run build && npx electron-builder --win
+bun run build && bunx electron-builder --win
 ```
 
 ## Tech Stack
@@ -112,7 +120,8 @@ npm run build && npx electron-builder --win
 - **Desktop Shell** -- Electron
 - **UI** -- React + TypeScript
 - **State Management** -- Zustand (with persistence)
-- **Styling** -- TailwindCSS
+- **Styling** -- Tailwind CSS
+- **Package manager** -- Bun
 - **Search** -- Fuse.js (fuzzy matching)
 - **Auto-updates** -- electron-updater
 - **Logging** -- electron-log

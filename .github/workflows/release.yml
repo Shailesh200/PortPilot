@@ -17,14 +17,23 @@ jobs:
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
 
-      - uses: actions/setup-node@v4
+      - uses: oven-sh/setup-bun@v2
         with:
-          node-version: 22
+          bun-version: 1.3.11
 
       - name: Bump patch version
         id: bump
         run: |
-          NEW_VERSION=$(npm version patch --no-git-tag-version | sed 's/^v//')
+          NEW_VERSION=$(node -e "
+            const fs = require('fs');
+            const pkg = JSON.parse(fs.readFileSync('package.json', 'utf8'));
+            const parts = pkg.version.split('.').map(Number);
+            parts[2] += 1;
+            pkg.version = parts.join('.');
+            fs.writeFileSync('package.json', JSON.stringify(pkg, null, 2) + '\n');
+            process.stdout.write(pkg.version);
+          ")
+          bun install --lockfile-only
           echo "version=${NEW_VERSION}" >> "$GITHUB_OUTPUT"
           echo "Bumped to v${NEW_VERSION}"
 
@@ -32,7 +41,7 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add package.json package-lock.json
+          git add package.json bun.lock
           git commit -m "chore: bump version to v${{ steps.bump.outputs.version }} [skip ci]"
           git tag "v${{ steps.bump.outputs.version }}"
           git push
@@ -48,24 +57,23 @@ jobs:
         with:
           ref: main
 
-      - uses: actions/setup-node@v4
+      - uses: oven-sh/setup-bun@v2
         with:
-          node-version: 22
-          cache: npm
+          bun-version: 1.3.11
 
       - name: Install dependencies
-        run: npm ci
+        run: bun install --frozen-lockfile
 
       - name: Typecheck
-        run: npm run typecheck
+        run: bun run typecheck
 
       - name: Build app
         run: |
           rm -rf out
-          npm run build
+          bun run build
 
       - name: Build and publish macOS artifacts
-        run: npx electron-builder --mac --publish always
+        run: bunx electron-builder --mac --publish always
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           CSC_IDENTITY_AUTO_DISCOVERY: false
@@ -81,21 +89,17 @@ jobs:
         with:
           ref: main
 
-      - uses: actions/setup-node@v4
+      - uses: oven-sh/setup-bun@v2
         with:
-          node-version: 22
-          cache: npm
+          bun-version: 1.3.11
 
       - name: Install dependencies
         shell: bash
-        run: |
-          npm ci 2>&1 | tee win-install.log
-          # npm ci can skip platform optional deps (npm/cli#4828); rollup needs the Windows native binding.
-          npm install --no-save @rollup/rollup-win32-x64-msvc 2>&1 | tee -a win-install.log
+        run: bun install --frozen-lockfile 2>&1 | tee win-install.log
 
       - name: Typecheck
         shell: bash
-        run: npm run typecheck 2>&1 | tee win-typecheck.log
+        run: bun run typecheck 2>&1 | tee win-typecheck.log
 
       - name: Build app
         shell: bash
@@ -103,7 +107,7 @@ jobs:
           NODE_OPTIONS: --max-old-space-size=8192
         run: |
           rm -rf out
-          npm run build 2>&1 | tee win-build.log
+          bun run build 2>&1 | tee win-build.log
           exit ${PIPESTATUS[0]}
 
       - name: Publish Windows build failure details
@@ -133,6 +137,6 @@ jobs:
             });
 
       - name: Build and publish Windows artifacts
-        run: npx electron-builder --win --publish always
+        run: bunx electron-builder --win --publish always
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

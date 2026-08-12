@@ -6,7 +6,7 @@ import {
   type ReactNode,
   type UIEvent
 } from 'react'
-import * as Diff from 'diff'
+import type { Change } from 'diff'
 import { ChevronDown, ChevronUp, Eraser } from 'lucide-react'
 import { clsx } from 'clsx'
 import { WorkspaceToolbar } from '../../../shell/WorkspaceToolbar'
@@ -24,7 +24,7 @@ import {
   ToolWorkspaceExtras
 } from './ToolWorkspaceExtras'
 
-type CharPart = Diff.Change & { idx: number }
+type CharPart = Change & { idx: number }
 
 function sideParts(parts: CharPart[], side: 'left' | 'right'): CharPart[] {
   return parts.filter((part) => {
@@ -175,10 +175,18 @@ export function TextDiff() {
     patchSession({ left, right, split })
   }, [left, right, split, patchSession])
 
-  const parts = useMemo<CharPart[]>(
-    () => Diff.diffChars(left, right).map((p, idx) => ({ ...p, idx })),
-    [left, right]
-  )
+  const [parts, setParts] = useState<CharPart[]>([])
+
+  useEffect(() => {
+    let cancelled = false
+    void import('diff').then((Diff) => {
+      if (cancelled) return
+      setParts(Diff.diffChars(left, right).map((p, idx) => ({ ...p, idx })))
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [left, right])
 
   const changeIndices = useMemo(
     () => parts.filter((p) => p.added || p.removed).map((p) => p.idx),

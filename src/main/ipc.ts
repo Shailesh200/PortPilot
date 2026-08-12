@@ -1,7 +1,7 @@
 import { ipcMain, BrowserWindow, globalShortcut, app } from 'electron'
 import log from './logger'
 import { loadProfilesState, saveProfilesState } from './profiles-persistence'
-import { scanPorts } from './services/port-scanner'
+import { scanPorts } from './os'
 import {
   getProcessDetails,
   killProcess,
@@ -11,7 +11,7 @@ import {
   openInVSCode,
   restartProcess,
   setAutoFocusTerminal
-} from './services/process-manager'
+} from './os'
 import { markExpectedStopsForPid } from './services/expected-stops'
 import {
   processPortAlerts,
@@ -19,6 +19,7 @@ import {
 } from './services/port-alerts'
 import type { PortInfo, ProfilesPersistState, Profile } from '../shared/types'
 import { registerWorkbenchIpc } from './modules/workbench-ipc'
+import { IpcChannel, IpcEvent } from '../shared/ipc'
 
 function markStopsForPid(pid: number): void {
   markExpectedStopsForPid(pid, lastPorts)
@@ -27,7 +28,7 @@ function markStopsForPid(pid: number): void {
 export function notifyProfilesChanged(): void {
   for (const w of BrowserWindow.getAllWindows()) {
     try {
-      if (!w.isDestroyed()) w.webContents.send('profiles-changed')
+      if (!w.isDestroyed()) w.webContents.send(IpcEvent.profilesChanged)
     } catch {
       /* ignore */
     }
@@ -127,17 +128,17 @@ export function isProtectedPid(pid: number): boolean {
 }
 
 export function registerIpcHandlers(): void {
-  ipcMain.handle('get-ports', async () => {
+  ipcMain.handle(IpcChannel.getPorts, async () => {
     lastPorts = await scanPorts()
     return lastPorts
   })
 
-  ipcMain.handle('get-process-details', async (_event, pid: number) => {
+  ipcMain.handle(IpcChannel.getProcessDetails, async (_event, pid: number) => {
     if (!validatePid(pid)) return null
     return getProcessDetails(pid)
   })
 
-  ipcMain.handle('kill-process', async (_event, pid: number, force?: boolean) => {
+  ipcMain.handle(IpcChannel.killProcess, async (_event, pid: number, force?: boolean) => {
     if (!validatePid(pid)) return false
     if (isProtectedPid(pid)) {
       log.warn(`Refused to kill protected system process pid=${pid}`)
@@ -147,29 +148,29 @@ export function registerIpcHandlers(): void {
     return killProcess(pid, force)
   })
 
-  ipcMain.handle('kill-processes', async (_event, pids: number[]) => {
+  ipcMain.handle(IpcChannel.killProcesses, async (_event, pids: number[]) => {
     if (!Array.isArray(pids) || !pids.every(validatePid)) return []
     const allowed = pids.filter((pid) => !isProtectedPid(pid))
     for (const pid of allowed) markStopsForPid(pid)
     return killProcesses(allowed)
   })
 
-  ipcMain.handle('open-in-browser', async (_event, port: number) => {
+  ipcMain.handle(IpcChannel.openInBrowser, async (_event, port: number) => {
     if (!validatePort(port)) return
     openInBrowser(port)
   })
 
-  ipcMain.handle('open-in-terminal', async (_event, pid: number, projectPath?: string) => {
+  ipcMain.handle(IpcChannel.openInTerminal, async (_event, pid: number, projectPath?: string) => {
     if (!validatePid(pid)) return
     return openInTerminal(pid, typeof projectPath === 'string' ? projectPath : undefined)
   })
 
-  ipcMain.handle('open-in-vscode', async (_event, pid: number, projectPath?: string) => {
+  ipcMain.handle(IpcChannel.openInVscode, async (_event, pid: number, projectPath?: string) => {
     if (!validatePid(pid)) return
     return openInVSCode(pid, typeof projectPath === 'string' ? projectPath : undefined)
   })
 
-  ipcMain.handle('restart-process', async (_event, pid: number, projectPath?: string) => {
+  ipcMain.handle(IpcChannel.restartProcess, async (_event, pid: number, projectPath?: string) => {
     if (!validatePid(pid)) return { success: false, error: 'Invalid PID' }
     if (isProtectedPid(pid)) {
       log.warn(`Refused to restart protected system process pid=${pid}`)
@@ -179,7 +180,7 @@ export function registerIpcHandlers(): void {
     return restartProcess(pid, typeof projectPath === 'string' ? projectPath : undefined)
   })
 
-  ipcMain.handle('update-alert-settings', async (_event, settings: unknown) => {
+  ipcMain.handle(IpcChannel.updateAlertSettings, async (_event, settings: unknown) => {
     if (!settings || typeof settings !== 'object') return
     const s = settings as Partial<{
       notifyPortChange: boolean
@@ -189,20 +190,20 @@ export function registerIpcHandlers(): void {
     updateAlertSettings(s)
   })
 
-  ipcMain.handle('update-poll-interval', async (_event, intervalMs: number) => {
+  ipcMain.handle(IpcChannel.updatePollInterval, async (_event, intervalMs: number) => {
     // NaN slips past a plain `< 1000` comparison and would busy-loop the poller
     if (typeof intervalMs !== 'number' || !Number.isFinite(intervalMs)) return
     currentIntervalMs = Math.min(30000, Math.max(1000, Math.round(intervalMs)))
   })
 
-  ipcMain.handle('update-global-shortcut', async (_event, shortcut: string) => {
+  ipcMain.handle(IpcChannel.updateGlobalShortcut, async (_event, shortcut: string) => {
     if (typeof shortcut !== 'string' || shortcut.length === 0 || shortcut.length > 100) {
       return false
     }
     return updateGlobalShortcut(shortcut)
   })
 
-  ipcMain.handle('update-safety-settings', async (_event, settings: unknown) => {
+  ipcMain.handle(IpcChannel.updateSafetySettings, async (_event, settings: unknown) => {
     if (!settings || typeof settings !== 'object') return
     const s = settings as Partial<SafetySettings>
     safetySettings = {
@@ -222,30 +223,30 @@ export function registerIpcHandlers(): void {
     setAutoFocusTerminal(safetySettings.autoFocusTerminal)
   })
 
-  ipcMain.handle('get-app-version', async () => app.getVersion())
+  ipcMain.handle(IpcChannel.getAppVersion, async () => app.getVersion())
 
-  ipcMain.handle('window-is-full-screen', (event) => {
+  ipcMain.handle(IpcChannel.windowIsFullScreen, (event) => {
     const win = BrowserWindow.fromWebContents(event.sender)
     return win ? win.isFullScreen() : false
   })
 
-  ipcMain.handle('window-set-full-screen', (event, flag: unknown) => {
+  ipcMain.handle(IpcChannel.windowSetFullScreen, (event, flag: unknown) => {
     const win = BrowserWindow.fromWebContents(event.sender)
     if (!win) return false
     win.setFullScreen(Boolean(flag))
     return win.isFullScreen()
   })
 
-  ipcMain.handle('window-toggle-full-screen', (event) => {
+  ipcMain.handle(IpcChannel.windowToggleFullScreen, (event) => {
     const win = BrowserWindow.fromWebContents(event.sender)
     if (!win) return false
     win.setFullScreen(!win.isFullScreen())
     return win.isFullScreen()
   })
 
-  ipcMain.handle('load-profiles', async () => loadProfilesState())
+  ipcMain.handle(IpcChannel.loadProfiles, async () => loadProfilesState())
 
-  ipcMain.handle('save-profiles', async (_event, state: unknown) => {
+  ipcMain.handle(IpcChannel.saveProfiles, async (_event, state: unknown) => {
     if (!state || typeof state !== 'object') return false
     const s = state as Partial<ProfilesPersistState>
     if (!Array.isArray(s.profiles)) return false
@@ -281,7 +282,7 @@ export function startPortPolling(window: BrowserWindow, intervalMs = 3000): void
   // up to a full (hidden) poll cycle.
   window.on('show', () => {
     if (!window.isDestroyed()) {
-      window.webContents.send('ports-updated', lastPorts)
+      window.webContents.send(IpcEvent.portsUpdated, lastPorts)
     }
   })
 
@@ -300,14 +301,34 @@ export function startPortPolling(window: BrowserWindow, intervalMs = 3000): void
     scanning = true
     try {
       const ports = await scanPorts()
+      const unchanged =
+        lastPorts.length === ports.length &&
+        lastPorts.every((p, i) => {
+          const n = ports[i]
+          return (
+            p.pid === n.pid &&
+            p.port === n.port &&
+            p.command === n.command &&
+            p.cpu === n.cpu &&
+            p.memory === n.memory &&
+            p.memoryRSS === n.memoryRSS &&
+            p.projectPath === n.projectPath
+          )
+        })
       lastPorts = ports
       // Alerts run even when hidden so crash OS notifications still fire.
       processPortAlerts(window.isDestroyed() ? null : window, ports)
-      if (visible && !window.isDestroyed()) {
-        window.webContents.send('ports-updated', ports)
-      }
-      for (const listener of portChangeListeners) {
-        try { listener(ports) } catch { /* listener errors are non-fatal */ }
+      if (!unchanged) {
+        if (visible && !window.isDestroyed()) {
+          window.webContents.send(IpcEvent.portsUpdated, ports)
+        }
+        for (const listener of portChangeListeners) {
+          try {
+            listener(ports)
+          } catch {
+            /* listener errors are non-fatal */
+          }
+        }
       }
     } catch (err) {
       log.warn('Port scan error:', err)

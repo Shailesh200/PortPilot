@@ -28,6 +28,9 @@ crashReporter.start({
   uploadToServer: false
 })
 
+const processBootAt = Date.now()
+const benchEnabled = process.env.PORTPILOT_BENCH === '1'
+
 process.on('uncaughtException', (err) => {
   log.error('Uncaught exception:', err)
 })
@@ -222,6 +225,30 @@ if (!gotSingleInstanceLock) {
     registerIpcHandlers()
     setNotificationClickHandler(() => showMainWindow())
     createWindow()
+    if (benchEnabled && mainWindow && !mainWindow.isDestroyed()) {
+      const marks: Record<string, number> = {
+        whenReady: Date.now() - processBootAt
+      }
+      const mark = (label: string): void => {
+        marks[label] = Date.now() - processBootAt
+        try {
+          writeFileSync(
+            '/tmp/portpilot-bench.json',
+            JSON.stringify({ ...marks, at: new Date().toISOString() }, null, 2)
+          )
+        } catch {
+          /* ignore */
+        }
+        log.info(`[bench] ${label}: ${marks[label]}ms`)
+      }
+      writeFileSync(
+        '/tmp/portpilot-bench.json',
+        JSON.stringify({ ...marks, at: new Date().toISOString() }, null, 2)
+      )
+      mainWindow.webContents.once('did-finish-load', () => mark('did-finish-load'))
+      mainWindow.once('ready-to-show', () => mark('ready-to-show'))
+      mainWindow.once('show', () => mark('show'))
+    }
     registerGlobalShortcuts()
     createTray({
       showWindow: showMainWindow,

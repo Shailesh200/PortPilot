@@ -33,6 +33,13 @@ export function QuickPeek() {
     if (quickPeekPid) fetchProcessDetails(quickPeekPid)
   }, [quickPeekPid, fetchProcessDetails])
 
+  useEffect(() => {
+    return () => {
+      // Clear keyboard highlight when QuickPeek closes (avoids uiStore↔portStore cycle).
+      usePortStore.setState({ selectedIndex: -1 })
+    }
+  }, [])
+
   if (!quickPeekPid) return null
 
   const port = filteredPorts.find((p) => p.pid === quickPeekPid)

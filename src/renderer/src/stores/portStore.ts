@@ -116,6 +116,16 @@ function getFavoritePortsForSort(): number[] {
   return profiles.find((p) => p.id === activeProfileId)?.favoritePorts ?? []
 }
 
+/** Stable signature so identical poll results don't rebuild filteredPorts. */
+function portsSignature(ports: PortInfo[]): string {
+  return ports
+    .map(
+      (p) =>
+        `${p.pid}:${p.port}:${p.command}:${p.cpu}:${p.memory}:${p.memoryRSS}:${p.projectPath}`
+    )
+    .join('|')
+}
+
 function applySorted(
   filtered: PortInfo[],
   sortBy: keyof PortInfo,
@@ -145,6 +155,13 @@ export const usePortStore = create<PortState>((set, get) => ({
   groupByProject: false,
 
   setPorts: (ports) => {
+    const prev = get().ports
+    if (
+      prev.length === ports.length &&
+      portsSignature(prev) === portsSignature(ports)
+    ) {
+      return
+    }
     const { searchQuery, sortBy, sortDirection, tags, profileFilter } = get()
     let filtered = filterPorts(ports, searchQuery, tags)
     filtered = applyProfileFilter(filtered, profileFilter)

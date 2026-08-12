@@ -23,76 +23,56 @@ function shouldIgnorePortShortcuts(target: EventTarget | null): boolean {
 }
 
 export function useKeyboardShortcuts() {
-  const moveSelection = usePortStore((s) => s.moveSelection)
-  const filteredPorts = usePortStore((s) => s.filteredPorts)
-  const selectedIndex = usePortStore((s) => s.selectedIndex)
-  const killPort = usePortStore((s) => s.killPort)
-  const restartPort = usePortStore((s) => s.restartPort)
-  const openInBrowser = usePortStore((s) => s.openInBrowser)
-  const openInTerminal = usePortStore((s) => s.openInTerminal)
-  const openInVSCode = usePortStore((s) => s.openInVSCode)
-
-  const toggleCommandPalette = useUIStore((s) => s.toggleCommandPalette)
-  const isCommandPaletteOpen = useUIStore((s) => s.isCommandPaletteOpen)
-  const openQuickPeek = useUIStore((s) => s.openQuickPeek)
-  const closeQuickPeek = useUIStore((s) => s.closeQuickPeek)
-  const isQuickPeekOpen = useUIStore((s) => s.isQuickPeekOpen)
-  const openModule = useUIStore((s) => s.openModule)
-  const addToast = useUIStore((s) => s.addToast)
-  const toggleRowExpansion = useUIStore((s) => s.toggleRowExpansion)
-  const confirmDestructive = useSettingsStore((s) => s.confirmDestructive)
-  const protectSystemPorts = useSettingsStore((s) => s.protectSystemPorts)
-  const showConfirm = useUIStore((s) => s.showConfirm)
-  const confirmDialog = useUIStore((s) => s.confirmDialog)
-  const nav = useUIStore((s) => s.nav)
-
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       const target = e.target as HTMLElement
       const isInput =
         target.tagName === 'INPUT' || target.tagName === 'TEXTAREA'
 
+      const ui = useUIStore.getState()
+      const settings = useSettingsStore.getState()
+      const ports = usePortStore.getState()
+
       if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
         e.preventDefault()
-        toggleCommandPalette()
+        ui.toggleCommandPalette()
         return
       }
 
       if ((e.metaKey || e.ctrlKey) && e.key === '1') {
         e.preventDefault()
-        openModule('ports')
+        ui.openModule('ports')
         return
       }
       if ((e.metaKey || e.ctrlKey) && e.key === '2') {
         e.preventDefault()
-        openModule('text')
+        ui.openModule('text')
         return
       }
       if ((e.metaKey || e.ctrlKey) && e.key === '3') {
         e.preventDefault()
-        openModule('database')
+        ui.openModule('database')
         return
       }
 
       if ((e.metaKey || e.ctrlKey) && e.key === ',') {
         e.preventDefault()
-        openModule('settings')
+        ui.openModule('settings')
         return
       }
 
-      if (isCommandPaletteOpen || isInput) return
+      if (ui.isCommandPaletteOpen || isInput) return
 
       if (e.key === 'Escape') {
-        if (isQuickPeekOpen) closeQuickPeek()
+        if (ui.isQuickPeekOpen) ui.closeQuickPeek()
         return
       }
 
-      if (confirmDialog) return
-
-      if (isQuickPeekOpen) return
+      if (ui.confirmDialog) return
+      if (ui.isQuickPeekOpen) return
 
       const portsScreen =
-        nav.module === 'ports' ? nav.screen : null
+        ui.nav.module === 'ports' ? ui.nav.screen : null
       const allowPortNav =
         portsScreen === 'dashboard' || portsScreen === 'heatmap'
       if (!allowPortNav) return
@@ -107,10 +87,10 @@ export function useKeyboardShortcuts() {
 
       if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
         e.preventDefault()
-        moveSelection(e.key === 'ArrowUp' ? 'up' : 'down')
-        const { selectedIndex: idx, filteredPorts: ports } =
+        ports.moveSelection(e.key === 'ArrowUp' ? 'up' : 'down')
+        const { selectedIndex: idx, filteredPorts: list } =
           usePortStore.getState()
-        const p = ports[idx]
+        const p = list[idx]
         if (p) {
           queueMicrotask(() => {
             const n = useUIStore.getState().nav
@@ -129,10 +109,12 @@ export function useKeyboardShortcuts() {
         return
       }
 
+      const { filteredPorts, selectedIndex } = usePortStore.getState()
+
       if (e.key === 'ArrowRight') {
         if (portsScreen === 'dashboard') {
           const port = filteredPorts[selectedIndex]
-          if (port) toggleRowExpansion(port.pid)
+          if (port) ui.toggleRowExpansion(port.pid)
         }
         return
       }
@@ -140,7 +122,7 @@ export function useKeyboardShortcuts() {
       if (e.key === ' ') {
         e.preventDefault()
         const port = filteredPorts[selectedIndex]
-        if (port) openQuickPeek(port.pid)
+        if (port) ui.openQuickPeek(port.pid)
         return
       }
 
@@ -149,23 +131,24 @@ export function useKeyboardShortcuts() {
 
       switch (e.key.toLowerCase()) {
         case 'k': {
-          if (protectSystemPorts && selectedPort.isCritical) {
-            addToast({
+          if (settings.protectSystemPorts && selectedPort.isCritical) {
+            ui.addToast({
               type: 'warning',
               title: 'Protected Port',
               message: `Port ${selectedPort.port} is protected.`
             })
             break
           }
-          const doKill = () => killPort(selectedPort.pid).then((success) => {
-            addToast({
-              type: success ? 'success' : 'error',
-              title: success ? 'Process Killed' : 'Failed',
-              message: `Port ${selectedPort.port} (${selectedPort.command})`
+          const doKill = () =>
+            ports.killPort(selectedPort.pid).then((success) => {
+              useUIStore.getState().addToast({
+                type: success ? 'success' : 'error',
+                title: success ? 'Process Killed' : 'Failed',
+                message: `Port ${selectedPort.port} (${selectedPort.command})`
+              })
             })
-          })
-          if (confirmDestructive) {
-            showConfirm({
+          if (settings.confirmDestructive) {
+            ui.showConfirm({
               title: 'Kill Process',
               message: `Kill port ${selectedPort.port} (${selectedPort.command})?`,
               confirmLabel: 'Kill',
@@ -177,29 +160,36 @@ export function useKeyboardShortcuts() {
           break
         }
         case 'o':
-          openInBrowser(selectedPort.port)
+          void ports.openInBrowser(selectedPort.port)
           break
         case 't':
-          openInTerminal(selectedPort.pid, selectedPort.projectPath)
+          void ports.openInTerminal(selectedPort.pid, selectedPort.projectPath)
           break
         case 'v':
-          openInVSCode(selectedPort.pid, selectedPort.projectPath)
+          void ports.openInVSCode(selectedPort.pid, selectedPort.projectPath)
           break
         case 'r': {
           const doRestart = () => {
-            addToast({ type: 'info', title: 'Restarting...', message: `Port ${selectedPort.port} (${selectedPort.command})` })
-            restartPort(selectedPort.pid, selectedPort.projectPath).then((result) => {
-              addToast({
-                type: result.success ? 'success' : 'error',
-                title: result.success ? 'Process restarted' : 'Restart Failed',
-                message: result.success
-                  ? result.hint || `Port ${selectedPort.port} — command re-launched`
-                  : result.error || 'Unknown error'
-              })
+            useUIStore.getState().addToast({
+              type: 'info',
+              title: 'Restarting...',
+              message: `Port ${selectedPort.port} (${selectedPort.command})`
             })
+            ports
+              .restartPort(selectedPort.pid, selectedPort.projectPath)
+              .then((result) => {
+                useUIStore.getState().addToast({
+                  type: result.success ? 'success' : 'error',
+                  title: result.success ? 'Process restarted' : 'Restart Failed',
+                  message: result.success
+                    ? result.hint ||
+                      `Port ${selectedPort.port} — command re-launched`
+                    : result.error || 'Unknown error'
+                })
+              })
           }
-          if (confirmDestructive) {
-            showConfirm({
+          if (settings.confirmDestructive) {
+            ui.showConfirm({
               title: 'Restart Process',
               message: `Restart port ${selectedPort.port} (${selectedPort.command})?`,
               variant: 'warning',
@@ -216,27 +206,5 @@ export function useKeyboardShortcuts() {
 
     window.addEventListener('keydown', handler)
     return () => window.removeEventListener('keydown', handler)
-  }, [
-    moveSelection,
-    filteredPorts,
-    selectedIndex,
-    killPort,
-    restartPort,
-    openInBrowser,
-    openInTerminal,
-    openInVSCode,
-    toggleCommandPalette,
-    isCommandPaletteOpen,
-    openQuickPeek,
-    closeQuickPeek,
-    isQuickPeekOpen,
-    openModule,
-    addToast,
-    toggleRowExpansion,
-    confirmDestructive,
-    protectSystemPorts,
-    showConfirm,
-    confirmDialog,
-    nav
-  ])
+  }, [])
 }

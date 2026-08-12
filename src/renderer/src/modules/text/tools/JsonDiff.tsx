@@ -7,10 +7,8 @@ import {
   type MouseEvent as ReactMouseEvent,
   type ReactNode
 } from 'react'
-import * as Diff from 'diff'
-import { Differ, Viewer, type DiffResult } from 'json-diff-kit'
-import 'json-diff-kit/dist/viewer.css'
-import './jsonDiffViewer.css'
+import type { Change } from 'diff'
+import type { DiffResult } from 'json-diff-kit'
 import {
   ArrowLeftRight,
   ChevronDown,
@@ -58,7 +56,7 @@ type SemanticRun = {
 
 type LineRun = {
   kind: 'line'
-  parts: Diff.Change[]
+  parts: Change[]
   identical: boolean
 }
 
@@ -72,12 +70,6 @@ const VIEWER_SCROLL_ID = 'portpilot-json-diff-scroll'
 const LINE_DIFF_ROOT_ID = 'portpilot-json-diff-line'
 const FIND_MARK_CLASS = 'portpilot-find-hit'
 const FIND_MARK_ACTIVE = 'is-active'
-
-const differ = new Differ({
-  detectCircular: true,
-  showModifications: true,
-  arrayDiffMethod: 'lcs'
-})
 
 const VIEWER_BG = {
   add: 'rgb(34 197 94 / 0.18)',
@@ -180,7 +172,7 @@ function semanticDiffIndices(
   return out
 }
 
-function lineDiffIndices(parts: Diff.Change[]): number[] {
+function lineDiffIndices(parts: Change[]): number[] {
   const indices: number[] = []
   let row = 0
   for (const p of parts) {
@@ -198,7 +190,7 @@ function LineDiffView({
   parts,
   activeRow
 }: {
-  parts: Diff.Change[]
+  parts: Change[]
   activeRow: number | null
 }): ReactNode {
   let row = 0
@@ -256,10 +248,42 @@ export function JsonDiff() {
   const [diffNavIndex, setDiffNavIndex] = useState(0)
   const [leftPct, setLeftPct] = useState(saved.leftPct)
   const [sourcesPct, setSourcesPct] = useState(saved.sourcesPct)
+  const [diffReady, setDiffReady] = useState(false)
   const hSplitRef = useRef<HTMLDivElement>(null)
   const vSplitRef = useRef<HTMLDivElement>(null)
   const draggingH = useRef(false)
   const draggingV = useRef(false)
+  const differRef = useRef<InstanceType<
+    typeof import('json-diff-kit').Differ
+  > | null>(null)
+  const diffLibRef = useRef<typeof import('diff') | null>(null)
+  const [Viewer, setViewer] = useState<
+    typeof import('json-diff-kit').Viewer | null
+  >(null)
+
+  useEffect(() => {
+    let cancelled = false
+    void (async () => {
+      const [kit, diff] = await Promise.all([
+        import('json-diff-kit'),
+        import('diff'),
+        import('json-diff-kit/dist/viewer.css'),
+        import('./jsonDiffViewer.css')
+      ])
+      if (cancelled) return
+      differRef.current = new kit.Differ({
+        detectCircular: true,
+        showModifications: true,
+        arrayDiffMethod: 'lcs'
+      })
+      diffLibRef.current = diff
+      setViewer(() => kit.Viewer)
+      setDiffReady(true)
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [])
 
   useEffect(() => {
     patchSession({
@@ -448,9 +472,13 @@ export function JsonDiff() {
   const findDifference = () => {
     setError(null)
     if (bothEmpty) return
+    if (!diffReady || !differRef.current || !diffLibRef.current) {
+      setError('Diff engine is still loading…')
+      return
+    }
 
     if (mode === 'line') {
-      const parts = Diff.diffLines(leftRaw, rightRaw)
+      const parts = diffLibRef.current.diffLines(leftRaw, rightRaw)
       setRun({
         kind: 'line',
         parts,
@@ -490,7 +518,7 @@ export function JsonDiff() {
 
     setRun({
       kind: 'semantic',
-      diff: differ.diff(leftValue, rightValue),
+      diff: differRef.current.diff(leftValue, rightValue),
       identical: isJsonEqual(leftValue, rightValue),
       leftPretty,
       rightPretty
@@ -868,14 +896,20 @@ export function JsonDiff() {
                 id={VIEWER_SCROLL_ID}
                 className="portpilot-json-diff flex-1 min-h-0"
               >
-                <Viewer
-                  diff={run.diff}
-                  indent={2}
-                  lineNumbers
-                  highlightInlineDiff
-                  inlineDiffOptions={{ mode: 'char' }}
-                  bgColour={VIEWER_BG}
-                />
+                {Viewer ? (
+                  <Viewer
+                    diff={run.diff}
+                    indent={2}
+                    lineNumbers
+                    highlightInlineDiff
+                    inlineDiffOptions={{ mode: 'char' }}
+                    bgColour={VIEWER_BG}
+                  />
+                ) : (
+                  <p className="p-3 text-[12.5px] text-text-muted">
+                    Loading diff viewer…
+                  </p>
+                )}
               </div>
             ) : (
               <div className="flex-1 min-h-0 rounded-xl border border-border-subtle bg-bg-card overflow-hidden">

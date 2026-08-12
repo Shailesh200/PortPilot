@@ -8,11 +8,8 @@ import {
 } from 'react'
 import { Copy, Eraser, Play, Terminal } from 'lucide-react'
 import { clsx } from 'clsx'
-import CodeMirror from '@uiw/react-codemirror'
-import { javascript } from '@codemirror/lang-javascript'
-import { EditorView, keymap } from '@codemirror/view'
-import { indentWithTab } from '@codemirror/commands'
-import { Prec } from '@codemirror/state'
+import type { Extension } from '@codemirror/state'
+import type { EditorView as EditorViewType } from '@codemirror/view'
 import { WorkspaceToolbar } from '../../../shell/WorkspaceToolbar'
 import { useSettingsStore } from '../../../stores/settingsStore'
 import {
@@ -227,7 +224,10 @@ export function JsConsole() {
     }) => void
   } | null>(null)
   const outRef = useRef<HTMLDivElement>(null)
-  const editorViewRef = useRef<EditorView | null>(null)
+  const editorViewRef = useRef<EditorViewType | null>(null)
+  const editorViewApiRef = useRef<typeof import('@codemirror/view').EditorView | null>(
+    null
+  )
   const runId = useRef(0)
   const runRef = useRef<() => void>(() => {})
 
@@ -275,7 +275,8 @@ export function JsConsole() {
 
   const goToLine = useCallback((line: number) => {
     const view = editorViewRef.current
-    if (!view || line < 1) return
+    const EditorView = editorViewApiRef.current
+    if (!view || !EditorView || line < 1) return
     const max = view.state.doc.lines
     const ln = Math.min(line, max)
     const pos = view.state.doc.line(ln).from
@@ -403,14 +404,52 @@ export function JsConsole() {
     }
   }, [run])
 
-  const extensions = useMemo(
-    () => [
-      javascript({ jsx: false, typescript: false }),
+  type CmBundle = {
+    CodeMirror: typeof import('@uiw/react-codemirror').default
+    javascript: typeof import('@codemirror/lang-javascript').javascript
+    EditorView: typeof import('@codemirror/view').EditorView
+    keymap: typeof import('@codemirror/view').keymap
+    indentWithTab: typeof import('@codemirror/commands').indentWithTab
+    Prec: typeof import('@codemirror/state').Prec
+  }
+
+  const [cm, setCm] = useState<CmBundle | null>(null)
+
+  useEffect(() => {
+    let cancelled = false
+    void (async () => {
+      const [cmMod, jsMod, viewMod, cmdMod, stateMod] = await Promise.all([
+        import('@uiw/react-codemirror'),
+        import('@codemirror/lang-javascript'),
+        import('@codemirror/view'),
+        import('@codemirror/commands'),
+        import('@codemirror/state')
+      ])
+      if (cancelled) return
+      setCm({
+        CodeMirror: cmMod.default,
+        javascript: jsMod.javascript,
+        EditorView: viewMod.EditorView,
+        keymap: viewMod.keymap,
+        indentWithTab: cmdMod.indentWithTab,
+        Prec: stateMod.Prec
+      })
+      editorViewApiRef.current = viewMod.EditorView
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  const extensions = useMemo((): Extension[] => {
+    if (!cm) return []
+    return [
+      cm.javascript({ jsx: false, typescript: false }),
       portpilotEditorTheme(darkMode),
       portpilotHighlight(darkMode),
-      keymap.of([indentWithTab]),
-      Prec.highest(
-        keymap.of([
+      cm.keymap.of([cm.indentWithTab]),
+      cm.Prec.highest(
+        cm.keymap.of([
           {
             key: 'Mod-Enter',
             run: () => {
@@ -427,9 +466,8 @@ export function JsConsole() {
           }
         ])
       )
-    ],
-    [darkMode]
-  )
+    ]
+  }, [cm, darkMode])
 
   const copyCode = () => {
     void navigator.clipboard.writeText(code)
@@ -530,38 +568,47 @@ export function JsConsole() {
             >
               <Copy className="w-3.5 h-3.5" />
             </button>
-            <CodeMirror
-              value={code}
-              height="100%"
-              theme="none"
-              extensions={extensions}
-              onChange={setCode}
-              onCreateEditor={(view) => {
-                editorViewRef.current = view
-              }}
-              basicSetup={{
-                lineNumbers: true,
-                foldGutter: true,
-                highlightActiveLine: true,
-                highlightActiveLineGutter: true,
-                highlightSelectionMatches: true,
-                bracketMatching: true,
-                closeBrackets: true,
-                autocompletion: true,
-                rectangularSelection: true,
-                crosshairCursor: false,
-                indentOnInput: true,
-                syntaxHighlighting: false,
-                history: true,
-                defaultKeymap: true,
-                searchKeymap: true,
-                historyKeymap: true,
-                foldKeymap: true,
-                completionKeymap: true,
-                lintKeymap: false
-              }}
-              className="h-full min-h-0 [&_.cm-editor]:h-full [&_.cm-editor]:outline-none"
-            />
+            {cm ? (
+              (() => {
+                const CodeMirror = cm.CodeMirror
+                return (
+                  <CodeMirror
+                    value={code}
+                    height="100%"
+                    theme="none"
+                    extensions={extensions}
+                    onChange={setCode}
+                    onCreateEditor={(view) => {
+                      editorViewRef.current = view
+                    }}
+                    basicSetup={{
+                      lineNumbers: true,
+                      foldGutter: true,
+                      highlightActiveLine: true,
+                      highlightActiveLineGutter: true,
+                      highlightSelectionMatches: true,
+                      bracketMatching: true,
+                      closeBrackets: true,
+                      autocompletion: true,
+                      rectangularSelection: true,
+                      crosshairCursor: false,
+                      indentOnInput: true,
+                      syntaxHighlighting: false,
+                      history: true,
+                      defaultKeymap: true,
+                      searchKeymap: true,
+                      historyKeymap: true,
+                      foldKeymap: true,
+                      completionKeymap: true,
+                      lintKeymap: false
+                    }}
+                    className="h-full min-h-0 [&_.cm-editor]:h-full [&_.cm-editor]:outline-none"
+                  />
+                )
+              })()
+            ) : (
+              <p className="p-3 text-[12.5px] text-text-muted">Loading editor…</p>
+            )}
           </ToolPane>
         </div>
 
