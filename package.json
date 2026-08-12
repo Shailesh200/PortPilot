@@ -7,7 +7,7 @@
     "dev": "electron-vite dev",
     "build": "electron-vite build",
     "preview": "electron-vite preview",
-    "typecheck": "tsc -b --pretty false",
+    "typecheck": "tsc -b --pretty false --noEmit",
     "pack": "electron-vite build && electron-builder --mac --config",
     "postinstall": "electron-builder install-app-deps"
   },
