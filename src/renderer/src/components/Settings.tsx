@@ -191,7 +191,15 @@ function GeneralSettings() {
         description="System-wide shortcut to show/focus PortPilot"
       >
         <div className="flex items-center gap-2">
-          <span className="kbd text-[10px]">{globalShortcut}</span>
+          <span className="flex items-center gap-1">
+            {formatAccelerator(globalShortcut)
+              .split(' ')
+              .map((key) => (
+                <span key={key} className="kbd text-[10px]">
+                  {key}
+                </span>
+              ))}
+          </span>
           <select
             value={globalShortcut}
             onChange={async (e) => {
@@ -300,11 +308,11 @@ function AppearanceSettings() {
 }
 
 const defaultShortcuts = [
-  { id: 'global-launcher', label: 'Global Launcher', keys: '⌘ ⇧ P', category: 'Global' },
+  { id: 'global-launcher', label: 'Global Launcher', keys: '⌘ ⌥ P', category: 'Global' },
   { id: 'command-palette', label: 'Command Palette', keys: '⌘ K', category: 'Global' },
-  { id: 'nav-dashboard', label: 'Go to Dashboard', keys: '⌘ 1', category: 'Navigation' },
-  { id: 'nav-heatmap', label: 'Go to Heatmap', keys: '⌘ 2', category: 'Navigation' },
-  { id: 'nav-logs', label: 'Go to Logs', keys: '⌘ 3', category: 'Navigation' },
+  { id: 'nav-ports', label: 'Go to Ports', keys: '⌘ 1', category: 'Navigation' },
+  { id: 'nav-text', label: 'Go to Text & Data', keys: '⌘ 2', category: 'Navigation' },
+  { id: 'nav-database', label: 'Go to Database', keys: '⌘ 3', category: 'Navigation' },
   { id: 'nav-settings', label: 'Go to Settings', keys: '⌘ ,', category: 'Navigation' },
   { id: 'search-focus', label: 'Focus Search', keys: '/', category: 'Search' },
   { id: 'kill', label: 'Kill Selected Process', keys: 'K', category: 'Actions' },
@@ -323,15 +331,47 @@ const defaultShortcuts = [
   { id: 'close-modal', label: 'Close / Dismiss', keys: 'Esc', category: 'General' }
 ]
 
+/** Electron accelerator → display chips, e.g. CommandOrControl+Alt+P → "⌘ ⌥ P". */
+function formatAccelerator(accelerator: string): string {
+  const keyMap: Record<string, string> = {
+    CommandOrControl: '⌘',
+    CmdOrCtrl: '⌘',
+    Command: '⌘',
+    Control: '⌃',
+    Ctrl: '⌃',
+    Alt: '⌥',
+    Option: '⌥',
+    Shift: '⇧',
+    Super: '⌘',
+    Meta: '⌘',
+    Plus: '+',
+    Space: 'Space',
+    Return: '↵',
+    Enter: '↵',
+    Escape: 'Esc',
+    Esc: 'Esc'
+  }
+  return accelerator
+    .split('+')
+    .map((part) => keyMap[part] ?? part)
+    .join(' ')
+}
+
 function ShortcutsSettings() {
-  const categories = [...new Set(defaultShortcuts.map((s) => s.category))]
+  const globalShortcut = useSettingsStore((s) => s.globalShortcut)
+  const shortcuts = defaultShortcuts.map((s) =>
+    s.id === 'global-launcher'
+      ? { ...s, keys: formatAccelerator(globalShortcut) }
+      : s
+  )
+  const categories = [...new Set(shortcuts.map((s) => s.category))]
 
   return (
     <div>
       {categories.map((category) => (
         <div key={category}>
           <SectionHeader title={category} />
-          {defaultShortcuts
+          {shortcuts
             .filter((s) => s.category === category)
             .map((shortcut) => (
               <div
@@ -403,11 +443,11 @@ function NotificationsSettings() {
       </SettingRow>
 
       <Divider />
-      <SectionHeader title="Toast Notifications" />
+      <SectionHeader title="Notifications" />
 
       <SettingRow
         label="Port started / stopped"
-        description="Notify when a port begins or stops listening"
+        description="In-app toast when focused; system notification when PortPilot is in the background"
       >
         <Toggle
           checked={notifyPortChange}
@@ -417,7 +457,7 @@ function NotificationsSettings() {
 
       <SettingRow
         label="High CPU usage"
-        description="Notify when a process exceeds the CPU threshold"
+        description="In-app toast when a process exceeds the CPU threshold"
       >
         <Toggle
           checked={notifyHighCpu}
@@ -426,8 +466,8 @@ function NotificationsSettings() {
       </SettingRow>
 
       <SettingRow
-        label="Crash detected"
-        description="Notify when a monitored process crashes"
+        label="Process disappeared"
+        description="Alert when a port stops unexpectedly (not after you kill/restart it). Uses a system notification when the app is in the background"
       >
         <Toggle
           checked={notifyCrash}
@@ -672,14 +712,28 @@ function SafetySettings() {
 const PROFILE_ICONS = ['🎨', '⚙️', '🗄️', '🌐', '🧪', '📦', '🔧', '🚀', '💻', '🔌']
 
 function ProfilesSettings() {
-  const { profiles, activeProfileId, addProfile, removeProfile, setActiveProfile } =
-    useSettingsStore()
+  const {
+    profiles,
+    activeProfileId,
+    addProfile,
+    removeProfile,
+    setActiveProfile,
+    openProfileCreator,
+    clearOpenProfileCreator
+  } = useSettingsStore()
   const setProfileFilter = usePortStore((s) => s.setProfileFilter)
   const { addToast } = useUIStore()
   const [isCreating, setIsCreating] = useState(false)
   const [newName, setNewName] = useState('')
   const [newIcon, setNewIcon] = useState('🔧')
   const [newPorts, setNewPorts] = useState('')
+
+  useEffect(() => {
+    if (openProfileCreator) {
+      setIsCreating(true)
+      clearOpenProfileCreator()
+    }
+  }, [openProfileCreator, clearOpenProfileCreator])
 
   const handleCreate = () => {
     if (!newName.trim()) return
@@ -863,9 +917,19 @@ const tabComponents: Record<SettingsTab, () => JSX.Element> = {
 }
 
 export function Settings() {
-  const [activeTab, setActiveTab] = useState<SettingsTab>('general')
+  const nav = useUIStore((s) => s.nav)
+  const setNav = useUIStore((s) => s.setNav)
+  const navScreen =
+    nav.module === 'settings' ? (nav.screen as SettingsTab) : 'general'
+  const [activeTab, setActiveTab] = useState<SettingsTab>(navScreen)
   const [appVersion, setAppVersion] = useState('')
   const ActivePanel = tabComponents[activeTab]
+
+  useEffect(() => {
+    if (nav.module === 'settings' && nav.screen in tabComponents) {
+      setActiveTab(nav.screen as SettingsTab)
+    }
+  }, [nav])
 
   useEffect(() => {
     void window.api.getAppVersion().then(setAppVersion).catch(() => {})
@@ -883,7 +947,10 @@ export function Settings() {
         {tabs.map(({ id, label, icon: Icon }) => (
           <button
             key={id}
-            onClick={() => setActiveTab(id)}
+            onClick={() => {
+              setActiveTab(id)
+              setNav({ module: 'settings', screen: id }, false)
+            }}
             className={clsx(
               'w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm transition-all duration-150',
               activeTab === id

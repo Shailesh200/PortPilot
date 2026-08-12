@@ -1,0 +1,132 @@
+/* PortPilot skin for json-diff-kit Viewer */
+
+.portpilot-json-diff {
+  height: 100%;
+  min-height: 0;
+  overflow: auto;
+  border-radius: 0.75rem;
+  border: 1px solid rgb(var(--border-subtle));
+  background: rgb(var(--bg-card));
+  position: relative;
+}
+
+.portpilot-json-diff .json-diff-viewer {
+  width: 100%;
+  table-layout: fixed;
+  border-collapse: collapse;
+  border-spacing: 0;
+  color: rgb(var(--text-primary));
+  font-family: 'SF Mono', 'JetBrains Mono', 'Fira Code', monospace;
+}
+
+/* colgroup: ln | left | ln | right — equal content panes, no middle void */
+.portpilot-json-diff .json-diff-viewer colgroup.measure-line col:nth-child(1),
+.portpilot-json-diff .json-diff-viewer colgroup.measure-line col:nth-child(3) {
+  width: 3.25rem;
+}
+
+.portpilot-json-diff .json-diff-viewer colgroup.measure-line col:nth-child(2),
+.portpilot-json-diff .json-diff-viewer colgroup.measure-line col:nth-child(4) {
+  width: calc(50% - 3.25rem);
+}
+
+.portpilot-json-diff .json-diff-viewer tr:hover td:before {
+  background: rgb(var(--bg-hover) / 0.35);
+}
+
+.portpilot-json-diff .json-diff-viewer tr.message-line,
+.portpilot-json-diff .json-diff-viewer tr.expand-line .has-lines-before,
+.portpilot-json-diff .json-diff-viewer tr.expand-line .has-lines-after {
+  border-color: rgb(var(--border-strong));
+}
+
+.portpilot-json-diff .json-diff-viewer tr.message-line td,
+.portpilot-json-diff .json-diff-viewer tr.expand-line td {
+  color: rgb(var(--text-secondary));
+  background: rgb(var(--bg-elevated) / 0.4);
+}
+
+.portpilot-json-diff .json-diff-viewer tr.expand-line button {
+  color: rgb(var(--text-secondary));
+  font-family: inherit;
+  font-size: 11px;
+}
+
+.portpilot-json-diff .json-diff-viewer tr.expand-line button:hover {
+  color: #6366f1;
+}
+
+.portpilot-json-diff .json-diff-viewer td.line-number {
+  box-sizing: border-box;
+  border-right: 1px solid rgb(var(--border-subtle));
+  color: rgb(var(--text-muted));
+  font-family: inherit;
+  font-size: 11px;
+  background: rgb(var(--bg-elevated) / 0.55);
+  white-space: nowrap;
+  vertical-align: top;
+  padding: 2px 6px !important;
+  text-align: right;
+}
+
+/* Divider between left pane and right pane */
+.portpilot-json-diff .json-diff-viewer td.line-number:nth-child(3) {
+  border-left: 1px solid rgb(var(--border-strong));
+}
+
+.portpilot-json-diff .json-diff-viewer td:not(.line-number) {
+  vertical-align: top;
+  padding: 2px 8px !important;
+  overflow: hidden;
+}
+
+.portpilot-json-diff .json-diff-viewer pre {
+  font-family: inherit;
+  font-size: 12.5px;
+  line-height: 1.45rem;
+  color: rgb(var(--text-primary));
+  margin: 0;
+  padding: 0;
+  white-space: pre-wrap !important;
+  overflow-wrap: break-word !important;
+  word-break: break-word !important;
+  overflow: visible !important;
+  max-width: 100%;
+  box-sizing: border-box;
+}
+
+.portpilot-json-diff .json-diff-viewer pre .inline-diff-add {
+  background: rgb(34 197 94 / 0.35);
+  color: #4ade80;
+  text-decoration: none;
+  border-radius: 2px;
+}
+
+.portpilot-json-diff .json-diff-viewer pre .inline-diff-remove {
+  background: rgb(239 68 68 / 0.35);
+  color: #f87171;
+  border-radius: 2px;
+}
+
+.portpilot-json-diff .json-diff-viewer tr.portpilot-diff-active td {
+  outline: 1px solid rgb(245 158 11 / 0.7);
+  outline-offset: -1px;
+}
+
+/* Find-in-diff highlights */
+.portpilot-json-diff mark.portpilot-find-hit,
+#portpilot-json-diff-line mark.portpilot-find-hit {
+  background: rgb(250 204 21 / 0.55);
+  color: inherit;
+  border-radius: 2px;
+  padding: 0 1px;
+  box-decoration-break: clone;
+  -webkit-box-decoration-break: clone;
+}
+
+.portpilot-json-diff mark.portpilot-find-hit.is-active,
+#portpilot-json-diff-line mark.portpilot-find-hit.is-active {
+  background: rgb(250 204 21 / 0.95);
+  outline: 1px solid rgb(245 158 11);
+  outline-offset: 0;
+}

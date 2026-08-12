@@ -1,4 +1,4 @@
-import { clipboard, BrowserWindow } from 'electron'
+import { clipboard, BrowserWindow, app } from 'electron'
 import {
   existsSync,
   readFileSync,
@@ -7,20 +7,10 @@ import {
   mkdirSync
 } from 'fs'
 import { join } from 'path'
-import { app } from 'electron'
-
-export type ClipKind = 'text' | 'json' | 'url' | 'color' | 'code' | 'jwt'
-
-export interface ClipItem {
-  id: string
-  text: string
-  kind: ClipKind
-  createdAt: number
-  pinned: boolean
-}
+import type { ClipboardItem, ClipboardKind } from '../../../shared/types'
 
 const MAX_ITEMS = 200
-let history: ClipItem[] = []
+let history: ClipboardItem[] = []
 let lastText = ''
 let timer: ReturnType<typeof setInterval> | null = null
 let captureEnabled = false
@@ -29,7 +19,7 @@ function filePath(): string {
   return join(app.getPath('userData'), 'clipboard-history.json')
 }
 
-function classify(text: string): ClipKind {
+function classify(text: string): ClipboardKind {
   const t = text.trim()
   if (/^https?:\/\/\S+$/i.test(t)) return 'url'
   if (/^#[0-9a-f]{3,8}$/i.test(t) || /^rgba?\([^)]+\)$/i.test(t)) return 'color'
@@ -42,7 +32,7 @@ function classify(text: string): ClipKind {
       JSON.parse(t)
       return 'json'
     } catch {
-      /* */
+      /* ignore invalid JSON */
     }
   }
   if (/^(import |export |const |function |class |def )/m.test(t)) return 'code'
@@ -68,11 +58,13 @@ function broadcast(): void {
   }
 }
 
-export function loadClipboardHistory(): ClipItem[] {
+export function loadClipboardHistory(): ClipboardItem[] {
   try {
     const p = filePath()
     if (existsSync(p)) {
-      const raw = JSON.parse(readFileSync(p, 'utf-8')) as { items?: ClipItem[] }
+      const raw = JSON.parse(readFileSync(p, 'utf-8')) as {
+        items?: ClipboardItem[]
+      }
       if (Array.isArray(raw.items)) history = raw.items.slice(0, MAX_ITEMS)
     }
   } catch {
@@ -81,7 +73,7 @@ export function loadClipboardHistory(): ClipItem[] {
   return history
 }
 
-export function getClipboardHistory(): ClipItem[] {
+export function getClipboardHistory(): ClipboardItem[] {
   return history
 }
 
@@ -95,14 +87,21 @@ export function isClipboardCaptureEnabled(): boolean {
   return captureEnabled
 }
 
-export function pinClipboardItem(id: string, pinned: boolean): ClipItem[] {
+export function pinClipboardItem(id: string, pinned: boolean): ClipboardItem[] {
   history = history.map((h) => (h.id === id ? { ...h, pinned } : h))
   persist()
   broadcast()
   return history
 }
 
-export function clearClipboardHistory(keepPinned: boolean): ClipItem[] {
+export function deleteClipboardItem(id: string): ClipboardItem[] {
+  history = history.filter((h) => h.id !== id)
+  persist()
+  broadcast()
+  return history
+}
+
+export function clearClipboardHistory(keepPinned: boolean): ClipboardItem[] {
   history = keepPinned ? history.filter((h) => h.pinned) : []
   persist()
   broadcast()
@@ -121,7 +120,7 @@ function poll(): void {
     if (!text || text === lastText) return
     lastText = text
     if (text.length > 100_000) return
-    const item: ClipItem = {
+    const item: ClipboardItem = {
       id: `${Date.now()}-${Math.random().toString(16).slice(2)}`,
       text,
       kind: classify(text),
@@ -132,8 +131,9 @@ function poll(): void {
       0,
       MAX_ITEMS
     )
-    // keep pins at front-ish: pinned first then recent
-    history.sort((a, b) => Number(b.pinned) - Number(a.pinned) || b.createdAt - a.createdAt)
+    history.sort(
+      (a, b) => Number(b.pinned) - Number(a.pinned) || b.createdAt - a.createdAt
+    )
     persist()
     broadcast()
   } catch {

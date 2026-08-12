@@ -20,7 +20,9 @@ import {
   Minus,
   X,
   Star,
-  UserPlus
+  UserPlus,
+  Plus,
+  ChevronLeft
 } from 'lucide-react'
 import { clsx } from 'clsx'
 import type { PortInfo } from '../../../shared/types'
@@ -95,18 +97,23 @@ function ActionMenu({
   onClose: () => void
 }) {
   const menuRef = useRef<HTMLDivElement>(null)
+  const [panel, setPanel] = useState<'root' | 'profiles'>('root')
   const killPort = usePortStore((s) => s.killPort)
   const restartPort = usePortStore((s) => s.restartPort)
   const openInBrowser = usePortStore((s) => s.openInBrowser)
   const openInTerminal = usePortStore((s) => s.openInTerminal)
   const openInVSCode = usePortStore((s) => s.openInVSCode)
   const openQuickPeek = useUIStore((s) => s.openQuickPeek)
+  const setNav = useUIStore((s) => s.setNav)
   const addToast = useUIStore((s) => s.addToast)
   const confirmDestructive = useSettingsStore((s) => s.confirmDestructive)
   const protectSystemPorts = useSettingsStore((s) => s.protectSystemPorts)
   const showConfirm = useUIStore((s) => s.showConfirm)
   const profiles = useSettingsStore((s) => s.profiles)
   const addPortToProfile = useSettingsStore((s) => s.addPortToProfile)
+  const requestOpenProfileCreator = useSettingsStore(
+    (s) => s.requestOpenProfileCreator
+  )
   const reapplyFiltersAndSort = usePortStore((s) => s.reapplyFiltersAndSort)
 
   useEffect(() => {
@@ -116,7 +123,10 @@ function ActionMenu({
       }
     }
     const handleEscape = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose()
+      if (e.key === 'Escape') {
+        if (panel === 'profiles') setPanel('root')
+        else onClose()
+      }
     }
     document.addEventListener('mousedown', handleClickOutside)
     document.addEventListener('keydown', handleEscape)
@@ -124,7 +134,7 @@ function ActionMenu({
       document.removeEventListener('mousedown', handleClickOutside)
       document.removeEventListener('keydown', handleEscape)
     }
-  }, [onClose])
+  }, [onClose, panel])
 
   const actions = [
     {
@@ -182,22 +192,14 @@ function ActionMenu({
         onClose()
       }
     },
-    ...profiles.map((pr) => ({
-      id: `add-prof-${pr.id}-${port.port}`,
-      label: `Add :${port.port} to ${pr.name}`,
+    {
+      id: 'add-profiles',
+      label: 'Add to profiles',
       icon: UserPlus,
       className: 'hover:bg-accent/10 text-text-secondary hover:text-accent',
-      handler: () => {
-        addPortToProfile(pr.id, port.port)
-        reapplyFiltersAndSort()
-        addToast({
-          type: 'success',
-          title: 'Profile updated',
-          message: `Port ${port.port} added to ${pr.name}`
-        })
-        onClose()
-      }
-    })),
+      trailing: ChevronRight,
+      handler: () => setPanel('profiles')
+    },
     { id: 'divider-1' },
     {
       id: 'restart',
@@ -268,19 +270,93 @@ function ActionMenu({
         }
       }
     }
-  ] as const
+  ]
 
   return (
     <div
       ref={menuRef}
       className="absolute right-0 top-full mt-1 z-50 w-52 py-1.5 bg-bg-card rounded-lg border border-border shadow-xl shadow-black/20 animate-in fade-in slide-in-from-top-1 duration-100"
     >
-      {actions.map((action) => {
-        if ('label' in action) {
+      {panel === 'profiles' ? (
+        <>
+          <button
+            type="button"
+            onClick={() => setPanel('root')}
+            className="w-full flex items-center gap-2.5 px-3 py-1.5 text-xs text-text-muted hover:text-text-primary hover:bg-bg-hover transition-colors"
+          >
+            <ChevronLeft className="w-3.5 h-3.5 flex-shrink-0" />
+            <span className="flex-1 text-left">Add to profiles</span>
+          </button>
+          <div className="my-1 border-t border-border-subtle" />
+          {profiles.length === 0 ? (
+            <p className="px-3 py-2 text-[11px] text-text-muted">
+              No profiles yet — create one below.
+            </p>
+          ) : (
+            profiles.map((pr) => {
+              const already = pr.favoritePorts.includes(port.port)
+              return (
+                <button
+                  key={pr.id}
+                  type="button"
+                  disabled={already}
+                  onClick={() => {
+                    addPortToProfile(pr.id, port.port)
+                    reapplyFiltersAndSort()
+                    addToast({
+                      type: 'success',
+                      title: 'Profile updated',
+                      message: `Port ${port.port} added to ${pr.name}`
+                    })
+                    onClose()
+                  }}
+                  className={clsx(
+                    'w-full flex items-center gap-2.5 px-3 py-1.5 text-xs transition-colors',
+                    already
+                      ? 'text-text-muted cursor-default'
+                      : 'hover:bg-accent/10 text-text-secondary hover:text-accent'
+                  )}
+                >
+                  <span className="w-3.5 text-center flex-shrink-0">{pr.icon}</span>
+                  <span className="flex-1 text-left truncate">{pr.name}</span>
+                  {already && (
+                    <Check className="w-3 h-3 text-success flex-shrink-0" />
+                  )}
+                </button>
+              )
+            })
+          )}
+          <div className="my-1 border-t border-border-subtle" />
+          <button
+            type="button"
+            onClick={() => {
+              requestOpenProfileCreator()
+              setNav({ module: 'settings', screen: 'profiles' })
+              onClose()
+            }}
+            className="w-full flex items-center gap-2.5 px-3 py-1.5 text-xs hover:bg-accent/10 text-accent transition-colors"
+          >
+            <Plus className="w-3.5 h-3.5 flex-shrink-0" />
+            <span className="flex-1 text-left">New profile…</span>
+          </button>
+        </>
+      ) : (
+        actions.map((action) => {
+          if (!('label' in action) || !action.icon) {
+            return (
+              <div
+                key={action.id}
+                className="my-1 border-t border-border-subtle"
+              />
+            )
+          }
           const Icon = action.icon
+          const Trailing =
+            'trailing' in action && action.trailing ? action.trailing : null
           return (
             <button
               key={action.id}
+              type="button"
               onClick={action.handler}
               className={clsx(
                 'w-full flex items-center gap-2.5 px-3 py-1.5 text-xs transition-colors',
@@ -289,6 +365,9 @@ function ActionMenu({
             >
               <Icon className="w-3.5 h-3.5 flex-shrink-0" />
               <span className="flex-1 text-left">{action.label}</span>
+              {Trailing && (
+                <Trailing className="w-3.5 h-3.5 flex-shrink-0 opacity-60" />
+              )}
               {'shortcut' in action && action.shortcut && (
                 <span className="text-[10px] text-text-muted font-mono opacity-60">
                   {action.shortcut}
@@ -296,11 +375,8 @@ function ActionMenu({
               )}
             </button>
           )
-        }
-        return (
-          <div key={action.id} className="my-1 border-t border-border-subtle" />
-        )
-      })}
+        })
+      )}
     </div>
   )
 }
@@ -537,8 +613,8 @@ export function PortTable() {
   const clearSelection = usePortStore((s) => s.clearSelection)
   const confirmDestructive = useSettingsStore((s) => s.confirmDestructive)
   const showConfirm = useUIStore((s) => s.showConfirm)
-
-  const [groupByProject, setGroupByProject] = useState(false)
+  const groupByProject = usePortStore((s) => s.groupByProject)
+  const setGroupByProject = usePortStore((s) => s.setGroupByProject)
 
   const groupedPorts = useMemo(() => {
     if (!groupByProject) return null
@@ -703,7 +779,7 @@ export function PortTable() {
         <div className="flex items-center gap-3">
           <span>{filteredPorts.length} ports</span>
           <button
-            onClick={() => setGroupByProject((v) => !v)}
+            onClick={() => setGroupByProject(!groupByProject)}
             className={clsx(
               'flex items-center gap-1 px-2 py-0.5 rounded-md transition-colors',
               groupByProject ? 'bg-accent/10 text-accent' : 'hover:bg-bg-hover hover:text-text-secondary'

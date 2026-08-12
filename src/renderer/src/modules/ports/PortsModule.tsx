@@ -1,9 +1,8 @@
-import { LayoutDashboard, Grid3x3, ScrollText } from 'lucide-react'
+import { LayoutDashboard, Grid3x3 } from 'lucide-react'
 import { clsx } from 'clsx'
 import { useUIStore } from '../../stores/uiStore'
 import { Dashboard } from '../../components/Dashboard'
 import { Heatmap } from '../../components/Heatmap'
-import { LogViewer } from '../../components/LogViewer'
 import type { PortsScreen } from '../../../../shared/types'
 
 const portsTabs: {
@@ -13,14 +12,14 @@ const portsTabs: {
   shortcut: string
 }[] = [
   { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard, shortcut: '⌘1' },
-  { id: 'heatmap', label: 'Heatmap', icon: Grid3x3, shortcut: '' },
-  { id: 'logs', label: 'Logs', icon: ScrollText, shortcut: '' }
+  { id: 'heatmap', label: 'Heatmap', icon: Grid3x3, shortcut: '' }
 ]
 
 export function PortsModule() {
   const nav = useUIStore((s) => s.nav)
   const setNav = useUIStore((s) => s.setNav)
-  const screen = nav.module === 'ports' ? nav.screen : 'dashboard'
+  const rawScreen = nav.module === 'ports' ? (nav.screen as string) : 'dashboard'
+  const screen: PortsScreen = rawScreen === 'heatmap' ? 'heatmap' : 'dashboard'
 
   return (
     <div className="h-full flex flex-col overflow-hidden">
@@ -44,7 +43,6 @@ export function PortsModule() {
       <div className="flex-1 overflow-hidden">
         {screen === 'dashboard' && <Dashboard />}
         {screen === 'heatmap' && <Heatmap />}
-        {screen === 'logs' && <LogViewer />}
       </div>
     </div>
   )

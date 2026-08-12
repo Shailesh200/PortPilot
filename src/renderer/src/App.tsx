@@ -12,9 +12,7 @@ import { ConfirmDialog } from './components/ConfirmDialog'
 import { useKeyboardShortcuts } from './hooks/useKeyboardShortcuts'
 import { PortsModule } from './modules/ports/PortsModule'
 import { TextModule } from './modules/text/TextModule'
-import { ClipboardModule } from './modules/clipboard/ClipboardModule'
 import { DatabaseModule } from './modules/database/DatabaseModule'
-import { GitModule } from './modules/git/GitModule'
 
 function applyActiveProfileFilter(): void {
   const { activeProfileId, profiles } = useSettingsStore.getState()
@@ -39,18 +37,22 @@ export default function App() {
   const globalShortcut = useSettingsStore((s) => s.globalShortcut)
   const protectSystemPorts = useSettingsStore((s) => s.protectSystemPorts)
   const confirmDestructive = useSettingsStore((s) => s.confirmDestructive)
+  const notifyPortChange = useSettingsStore((s) => s.notifyPortChange)
+  const notifyCrash = useSettingsStore((s) => s.notifyCrash)
+  const autoOpenBrowser = useSettingsStore((s) => s.autoOpenBrowser)
+  const autoFocusTerminal = useSettingsStore((s) => s.autoFocusTerminal)
   const confirmDialog = useUIStore((s) => s.confirmDialog)
   const hideConfirm = useUIStore((s) => s.hideConfirm)
   const addToast = useUIStore((s) => s.addToast)
+  const isWorkspaceImmersive = useUIStore((s) => s.isWorkspaceImmersive)
 
   useKeyboardShortcuts()
 
   useEffect(() => {
     void window.api.loadProfiles().then((data) => {
-      if (!data?.profiles?.length) return
       useSettingsStore.getState().applyLoadedProfiles(
-        data.profiles,
-        data.activeProfileId
+        data?.profiles ?? [],
+        data?.activeProfileId ?? null
       )
       applyActiveProfileFilter()
     })
@@ -59,10 +61,9 @@ export default function App() {
   useEffect(() => {
     return window.api.onProfilesChanged(() => {
       void window.api.loadProfiles().then((data) => {
-        if (!data?.profiles?.length) return
         useSettingsStore.getState().applyLoadedProfiles(
-          data.profiles,
-          data.activeProfileId
+          data?.profiles ?? [],
+          data?.activeProfileId ?? null
         )
         // Re-apply the active profile's port filter — previously the
         // filter stayed on whatever ports were active when the tray
@@ -70,6 +71,19 @@ export default function App() {
         // showed up in the dashboard.
         applyActiveProfileFilter()
       })
+    })
+  }, [])
+
+  useEffect(() => {
+    return window.api.onOpenProfileCreator(() => {
+      useSettingsStore.getState().requestOpenProfileCreator()
+      useUIStore.getState().setNav({ module: 'settings', screen: 'profiles' })
+    })
+  }, [])
+
+  useEffect(() => {
+    return window.api.onNavigateTo((nav) => {
+      useUIStore.getState().setNav(nav)
     })
   }, [])
 
@@ -101,9 +115,29 @@ export default function App() {
   useEffect(() => {
     void window.api.updateSafetySettings({
       protectSystemPorts,
-      confirmDestructive
+      confirmDestructive,
+      autoFocusTerminal
     })
-  }, [protectSystemPorts, confirmDestructive])
+  }, [protectSystemPorts, confirmDestructive, autoFocusTerminal])
+
+  // Port start/stop/crash alerts run in main (so they work while hidden).
+  useEffect(() => {
+    void window.api.updateAlertSettings({
+      notifyPortChange,
+      notifyCrash,
+      autoOpenBrowser
+    })
+  }, [notifyPortChange, notifyCrash, autoOpenBrowser])
+
+  useEffect(() => {
+    return window.api.onAppToast((toast) => {
+      addToast({
+        type: toast.type,
+        title: toast.title,
+        message: toast.message
+      })
+    })
+  }, [addToast])
 
   useEffect(() => {
     return window.api.onUpdateStatus((info) => {
@@ -140,7 +174,6 @@ export default function App() {
     })
   }, [addToast])
 
-  const prevPortsRef = useRef<Set<number>>(new Set())
   const highCpuAlertedRef = useRef<Set<number>>(new Set())
   const highMemAlertedRef = useRef<Set<number>>(new Set())
 
@@ -151,32 +184,6 @@ export default function App() {
 
       const settings = useSettingsStore.getState()
       const toast = useUIStore.getState().addToast
-      const currentPorts = new Set(ports.map((p) => p.port))
-      const prevPorts = prevPortsRef.current
-
-      if (settings.notifyPortChange && prevPorts.size > 0) {
-        for (const port of ports) {
-          if (!prevPorts.has(port.port)) {
-            toast({
-              type: 'info',
-              title: 'Port Started',
-              message: `${port.projectName || port.command} on :${port.port}`
-            })
-            if (settings.autoOpenBrowser) {
-              window.api.openInBrowser(port.port)
-            }
-          }
-        }
-        for (const prevPort of prevPorts) {
-          if (!currentPorts.has(prevPort)) {
-            toast({
-              type: 'warning',
-              title: 'Port Stopped',
-              message: `Port :${prevPort} is no longer listening`
-            })
-          }
-        }
-      }
 
       if (settings.notifyHighCpu) {
         for (const port of ports) {
@@ -210,8 +217,6 @@ export default function App() {
           }
         }
       }
-
-      prevPortsRef.current = currentPorts
     })
     const cleanupSearch = window.api.onFocusSearch(() => {
       document.getElementById('search-input')?.focus()
@@ -228,12 +233,8 @@ export default function App() {
         return <PortsModule />
       case 'text':
         return <TextModule />
-      case 'clipboard':
-        return <ClipboardModule />
       case 'database':
         return <DatabaseModule />
-      case 'git':
-        return <GitModule />
       case 'settings':
         return <Settings />
       default:
@@ -243,10 +244,16 @@ export default function App() {
 
   return (
     <div className="flex h-screen w-screen overflow-hidden bg-bg">
-      <TitleBar />
-      <div className="flex w-full h-full pt-[52px]">
-        <Sidebar />
-        <main className="flex-1 overflow-hidden">{renderView()}</main>
+      {!isWorkspaceImmersive && <TitleBar />}
+      <div
+        className={
+          isWorkspaceImmersive
+            ? 'flex w-full h-full'
+            : 'flex w-full h-full pt-[52px]'
+        }
+      >
+        {!isWorkspaceImmersive && <Sidebar />}
+        <main className="flex-1 overflow-hidden min-w-0">{renderView()}</main>
       </div>
       {isCommandPaletteOpen && <CommandPalette />}
       {isQuickPeekOpen && <QuickPeek />}

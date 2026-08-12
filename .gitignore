@@ -136,5 +136,11 @@ vite.config.ts.timestamp-*
 out/
 dist/
 
+# Agent / local tooling caches
+.prism/
+
+# Alternate package manager lock (npm is canonical)
+bun.lock
+
 # macOS
 .DS_Store

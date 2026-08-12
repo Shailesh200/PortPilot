@@ -16,6 +16,8 @@ export function Heatmap() {
   const selectedIndex = usePortStore((s) => s.selectedIndex)
   const selectPort = usePortStore((s) => s.selectPort)
   const openQuickPeek = useUIStore((s) => s.openQuickPeek)
+  const isQuickPeekOpen = useUIStore((s) => s.isQuickPeekOpen)
+  const quickPeekPid = useUIStore((s) => s.quickPeekPid)
 
   return (
     <div className="h-full flex flex-col p-6">
@@ -67,7 +69,10 @@ export function Heatmap() {
                 className={clsx(
                   'relative p-2.5 rounded-lg border transition-all hover:scale-[1.02] hover:shadow-lg text-left outline-none focus-visible:ring-2 focus-visible:ring-accent/60',
                   getHeatColor(port.cpu, port.memory),
-                  selectedIndex === index && 'ring-2 ring-accent/60'
+                  // Ring only while this card's QuickPeek is open (focus-visible covers keyboard)
+                  isQuickPeekOpen &&
+                    quickPeekPid === port.pid &&
+                    'ring-2 ring-accent/60'
                 )}
               >
                 <div className="rounded-md bg-zinc-950/70 dark:bg-black/60 px-2 py-2 border border-white/10 shadow-inner backdrop-blur-[2px]">

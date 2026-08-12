@@ -38,7 +38,6 @@ export function useKeyboardShortcuts() {
   const closeQuickPeek = useUIStore((s) => s.closeQuickPeek)
   const isQuickPeekOpen = useUIStore((s) => s.isQuickPeekOpen)
   const openModule = useUIStore((s) => s.openModule)
-  const setNav = useUIStore((s) => s.setNav)
   const addToast = useUIStore((s) => s.addToast)
   const toggleRowExpansion = useUIStore((s) => s.toggleRowExpansion)
   const confirmDestructive = useSettingsStore((s) => s.confirmDestructive)
@@ -71,17 +70,7 @@ export function useKeyboardShortcuts() {
       }
       if ((e.metaKey || e.ctrlKey) && e.key === '3') {
         e.preventDefault()
-        openModule('clipboard')
-        return
-      }
-      if ((e.metaKey || e.ctrlKey) && e.key === '4') {
-        e.preventDefault()
         openModule('database')
-        return
-      }
-      if ((e.metaKey || e.ctrlKey) && e.key === '5') {
-        e.preventDefault()
-        openModule('git')
         return
       }
 
@@ -242,7 +231,6 @@ export function useKeyboardShortcuts() {
     closeQuickPeek,
     isQuickPeekOpen,
     openModule,
-    setNav,
     addToast,
     toggleRowExpansion,
     confirmDestructive,

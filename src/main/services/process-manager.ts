@@ -8,6 +8,13 @@ import type { ProcessDetails } from '../../shared/types'
 
 const execFileAsync = promisify(execFile)
 
+/** When false, restart still runs in the original tab but does not steal focus. */
+let autoFocusTerminal = true
+
+export function setAutoFocusTerminal(enabled: boolean): void {
+  autoFocusTerminal = enabled
+}
+
 /** execFile that never rejects — non-zero exits and missing binaries yield empty stdout. */
 async function execFileSafe(
   cmd: string,
@@ -91,124 +98,6 @@ export async function getProcessDetails(pid: number): Promise<ProcessDetails | n
   }
 }
 
-function isNoisePath(p: string): boolean {
-  const n = p.toLowerCase()
-  return (
-    n.includes('/node_modules/') ||
-    n.includes('/.git/') ||
-    n.includes('/library/') ||
-    n.includes('/frameworks/') ||
-    n.includes('.app/contents/') ||
-    n.includes('/proc/') ||
-    n.includes('/dev/') ||
-    n.endsWith('.node') ||
-    n.endsWith('.dylib') ||
-    n.endsWith('.so') ||
-    n.endsWith('.wasm') ||
-    n.endsWith('.pack') ||
-    n.endsWith('.pack.gz')
-  )
-}
-
-function scoreLogPath(p: string): number {
-  const n = p.toLowerCase()
-  let s = 0
-  if (n.includes('.log')) s += 10
-  if (n.includes('vite')) s += 5
-  if (n.includes('next')) s += 5
-  if (n.includes('npm')) s += 3
-  if (n.includes('debug')) s += 3
-  if (n.includes('.txt') || n.includes('.out') || n.includes('.err')) s += 4
-  if (n.includes('trace')) s += 2
-  return s
-}
-
-export async function getProcessLogs(pid: number): Promise<string[]> {
-  if (!isValidPid(pid)) return ['Invalid process id.']
-  const lines: string[] = []
-  const logFiles = new Set<string>()
-
-  const cwd = await resolveProcessCwd(pid)
-
-  const { stdout: fnOut } = await execFileSafe('lsof', ['-p', String(pid), '-Fn'])
-  for (const line of fnOut.split('\n')) {
-    if (line.startsWith('n/')) {
-      const filePath = line.slice(1).split('\0')[0]
-      if (!filePath.startsWith('/')) continue
-      if (isNoisePath(filePath)) continue
-      if (filePath.length > 4096) continue
-      logFiles.add(filePath)
-    }
-  }
-
-  const { stdout: findOut } = await execFileSafe('find', [
-    cwd,
-    '-maxdepth',
-    '5',
-    '(',
-    '-name',
-    '*.log',
-    '-o',
-    '-name',
-    'npm-debug.log*',
-    '-o',
-    '-name',
-    'yarn-debug.log*',
-    '-o',
-    '-name',
-    'vite.config.*.timestamp-*',
-    ')',
-    '-type',
-    'f',
-    '-mmin',
-    '-720'
-  ])
-  for (const p of findOut.trim().split('\n').slice(0, 25)) {
-    if (p && p.startsWith('/') && !isNoisePath(p)) logFiles.add(p)
-  }
-
-  const ranked = [...logFiles].sort(
-    (a, b) => scoreLogPath(b) - scoreLogPath(a) || b.length - a.length
-  )
-
-  for (const logFile of ranked.slice(0, 6)) {
-    // execFile: the path is passed as an argv entry, never through a shell,
-    // so hostile filenames can't inject commands.
-    const { stdout: tail } = await execFileSafe('tail', ['-n', '80', logFile])
-    if (tail.trim()) {
-      lines.push(`--- ${logFile} ---`)
-      lines.push(...tail.trim().split('\n'))
-    }
-  }
-
-  if (lines.length === 0 && process.platform === 'darwin') {
-    const { stdout: syslog } = await execFileSafe('log', [
-      'show',
-      '--predicate',
-      `processID == ${pid}`,
-      '--last',
-      '5m',
-      '--style',
-      'syslog'
-    ])
-    const tailLines = syslog.trim().split('\n').filter(Boolean).slice(-40)
-    if (tailLines.length > 0) {
-      lines.push('--- System Log (last 5m) ---')
-      lines.push(...tailLines)
-    }
-  }
-
-  if (lines.length === 0) {
-    lines.push('No log files found for this process.')
-    lines.push(
-      'Dev servers usually log to the terminal only. PortPilot reads open files under the project and common *.log paths.'
-    )
-    lines.push(`Project cwd: ${cwd}`)
-  }
-
-  return lines
-}
-
 function processExists(pid: number): boolean {
   try {
     process.kill(pid, 0)
@@ -275,6 +164,13 @@ async function resolveProcessCwd(pid: number): Promise<string> {
 
 type TerminalApp = 'terminal' | 'iterm' | 'cursor' | 'vscode' | 'warp' | 'unknown'
 
+export interface TerminalOpenResult {
+  ok: boolean
+  method: 'focused-tab' | 'focused-app' | 'new-tab' | 'fallback' | 'failed'
+  app: TerminalApp
+  message: string
+}
+
 interface AncestorInfo {
   app: TerminalApp
   ttys: string[]
@@ -290,23 +186,82 @@ const TERMINAL_SIGNATURES: [string, TerminalApp][] = [
   ['/warp.app/', 'warp'],
   ['warp.app', 'warp'],
   ['macos/stable', 'warp'],
-  ['contents/macos/stable', 'warp']
+  ['contents/macos/stable', 'warp'],
+  ['warphelper', 'warp']
 ]
 
 function addProcessTty(ttys: Set<string>, raw: string): void {
   const t = raw.trim()
   if (!t || t === '??' || t === '?' || t === '') return
-  ttys.add(t.startsWith('/dev/') ? t : `/dev/${t}`)
+  const withDev = t.startsWith('/dev/') ? t : `/dev/${t}`
+  ttys.add(withDev)
+  // Terminal/iTerm AppleScript sometimes expose tty without the /dev/ prefix
+  ttys.add(withDev.replace(/^\/dev\//, ''))
 }
 
-async function identifyTerminal(pid: number): Promise<AncestorInfo> {
-  const ttys = new Set<string>()
-  let app: TerminalApp = 'unknown'
+async function collectTtysFromLsof(pid: number, ttys: Set<string>): Promise<void> {
+  const { stdout: lsofOut } = await execFileSafe('lsof', [
+    '-a',
+    '-p',
+    String(pid),
+    '-d',
+    '0,1,2',
+    '-Fn'
+  ])
+  for (const line of lsofOut.split('\n')) {
+    if (line.startsWith('n/dev/tty') || line.startsWith('n/dev/ttys')) {
+      addProcessTty(ttys, line.slice(1).split('\0')[0])
+    }
+  }
+}
 
-  if (!isValidPid(pid)) return { app, ttys: [] }
+async function collectTtysForPid(pid: number): Promise<Set<string>> {
+  const ttys = new Set<string>()
+  if (!isValidPid(pid)) return ttys
 
   const { stdout: leafTty } = await execFileSafe('ps', ['-p', String(pid), '-o', 'tty='])
   addProcessTty(ttys, leafTty)
+  await collectTtysFromLsof(pid, ttys)
+
+  // Process group often still holds the shell TTY when the leaf shows ??
+  const { stdout: pgidOut } = await execFileSafe('ps', ['-p', String(pid), '-o', 'pgid='])
+  const pgid = parseInt(pgidOut.trim(), 10)
+  if (!isNaN(pgid) && pgid > 0) {
+    const { stdout: groupTtys } = await execFileSafe('ps', ['-o', 'tty=', '-g', String(pgid)])
+    for (const row of groupTtys.split('\n')) addProcessTty(ttys, row)
+  }
+
+  // Walk parents — the shell that owns the pty is often an ancestor of node
+  let current = pid
+  for (let depth = 0; depth < 16 && current > 1; depth++) {
+    const { stdout } = await execFileSafe('ps', ['-p', String(current), '-o', 'ppid=,tty='])
+    const m = stdout.trim().match(/^(\d+)\s+(\S+)/)
+    if (!m) break
+    addProcessTty(ttys, m[2])
+    await collectTtysFromLsof(current, ttys)
+    const next = parseInt(m[1], 10)
+    if (isNaN(next) || next <= 1 || next === current) break
+    current = next
+  }
+
+  // Direct children (shell → node) may own the pty
+  const { stdout: kids } = await execFileSafe('pgrep', ['-P', String(pid)])
+  for (const kid of kids.trim().split('\n').filter(Boolean).slice(0, 12)) {
+    const kidPid = parseInt(kid, 10)
+    if (isNaN(kidPid)) continue
+    const { stdout: kidTty } = await execFileSafe('ps', ['-p', kid, '-o', 'tty='])
+    addProcessTty(ttys, kidTty)
+    await collectTtysFromLsof(kidPid, ttys)
+  }
+
+  return ttys
+}
+
+async function identifyTerminal(pid: number): Promise<AncestorInfo> {
+  const ttys = await collectTtysForPid(pid)
+  let app: TerminalApp = 'unknown'
+
+  if (!isValidPid(pid)) return { app, ttys: [] }
 
   let current = pid
   for (let depth = 0; depth < 30 && current > 1; depth++) {
@@ -348,8 +303,16 @@ async function identifyTerminal(pid: number): Promise<AncestorInfo> {
 
   if (app === 'unknown') {
     const { stdout: psEnv } = await execFileSafe('ps', ['eww', '-p', String(pid)])
-    if (/TERM_PROGRAM=warp/i.test(psEnv)) {
+    if (/TERM_PROGRAM=warp/i.test(psEnv) || /WARPPATH=/i.test(psEnv)) {
       app = 'warp'
+    } else if (/TERM_PROGRAM=vscode/i.test(psEnv) && /CURSOR/i.test(psEnv)) {
+      app = 'cursor'
+    } else if (/TERM_PROGRAM=vscode/i.test(psEnv)) {
+      app = 'vscode'
+    } else if (/TERM_PROGRAM=apple_terminal/i.test(psEnv)) {
+      app = 'terminal'
+    } else if (/TERM_PROGRAM=iterm/i.test(psEnv)) {
+      app = 'iterm'
     }
   }
 
@@ -362,11 +325,24 @@ async function runAppleScript(...lines: string[]): Promise<string> {
   return stdout.trim()
 }
 
+function ttyMatchConditions(ttys: string[], sessionVar: string): string {
+  // Match both /dev/ttys001 and ttys001 forms
+  const variants = new Set<string>()
+  for (const t of ttys) {
+    variants.add(t)
+    if (t.startsWith('/dev/')) variants.add(t.slice(5))
+    else variants.add(`/dev/${t}`)
+  }
+  return [...variants]
+    .map((t) => `tty of ${sessionVar} is "${asQuote(t)}"`)
+    .join(' or ')
+}
+
 async function focusTerminalTab(ttys: string[]): Promise<boolean> {
   if (ttys.length === 0) return false
 
   try {
-    const conditions = ttys.map((t) => `tty of t is "${asQuote(t)}"`).join(' or ')
+    const conditions = ttyMatchConditions(ttys, 't')
     const result = await runAppleScript(
       'tell application "Terminal"',
       '  repeat with w in windows',
@@ -393,7 +369,7 @@ async function focusITermTab(ttys: string[]): Promise<boolean> {
   if (ttys.length === 0) return false
 
   try {
-    const conditions = ttys.map((t) => `tty of s is "${asQuote(t)}"`).join(' or ')
+    const conditions = ttyMatchConditions(ttys, 's')
     const result = await runAppleScript(
       'tell application "iTerm2"',
       '  repeat with w in windows',
@@ -417,6 +393,14 @@ async function focusITermTab(ttys: string[]): Promise<boolean> {
   } catch {
     return false
   }
+}
+
+/** Prefer focusing the live tab; Terminal + iTerm both expose tty for matching. */
+async function focusAnyScriptableTab(ttys: string[]): Promise<TerminalApp | null> {
+  if (ttys.length === 0) return null
+  if (await focusTerminalTab(ttys)) return 'terminal'
+  if (await focusITermTab(ttys)) return 'iterm'
+  return null
 }
 
 async function focusApp(bundleName: string): Promise<boolean> {
@@ -518,9 +502,9 @@ async function runCommandInTerminalTab(
       '    repeat with t in tabs of w',
       `      if ${conditions} then`,
       '        if miniaturized of w then set miniaturized of w to false',
-      `        do script "exec /bin/bash \\"${esc}\\"" in t`,
-      '        activate',
-      '        return "ok"',
+        `        do script "exec /bin/bash \\"${esc}\\"" in t`,
+        ...(autoFocusTerminal ? ['        activate'] : []),
+        '        return "ok"',
       '      end if',
       '    end repeat',
       '  end repeat',
@@ -558,9 +542,9 @@ async function runCommandInITermTab(
       '          if miniaturized of w then set miniaturized of w to false',
       '          select t',
       '          select s',
-      `          tell s to write text ("exec /bin/bash \\"${esc}\\"" & return)`,
-      '          activate',
-      '          return "ok"',
+          `          tell s to write text ("exec /bin/bash \\"${esc}\\"" & return)`,
+          ...(autoFocusTerminal ? ['          activate'] : []),
+          '          return "ok"',
       '        end if',
       '      end repeat',
       '    end repeat',
@@ -580,54 +564,131 @@ async function runCommandInITermTab(
   }
 }
 
-export async function openInTerminal(pid: number, projectPath?: string): Promise<void> {
+export async function openInTerminal(
+  pid: number,
+  projectPath?: string
+): Promise<TerminalOpenResult> {
   const { app, ttys } = await identifyTerminal(pid)
   const dir = projectPath || (await resolveProcessCwd(pid))
 
+  // Always try exact tab match first when we have a TTY (works across Terminal/iTerm
+  // even if ancestor detection mis-labels the host app).
+  const focused = await focusAnyScriptableTab(ttys)
+  if (focused) {
+    return {
+      ok: true,
+      method: 'focused-tab',
+      app: focused,
+      message: `Focused the live ${focused === 'iterm' ? 'iTerm' : 'Terminal'} tab for this process.`
+    }
+  }
+
+  // IDE / Warp integrated sessions are not scriptable by tty — focus the host app
+  // and stop. Never fall through to `do script` (that opens a brand-new Terminal).
   switch (app) {
-    case 'terminal':
-      if (await focusTerminalTab(ttys)) return
-      break
-    case 'iterm':
-      if (await focusITermTab(ttys)) return
-      try {
-        await runAppleScript(
-          'tell application "iTerm2"',
-          '  tell current window',
-          '    create tab with default profile',
-          `    tell current session of current tab to write text "${asQuote(`cd ${shQuote(dir)}`)}"`,
-          '  end tell',
-          '  activate',
-          'end tell'
-        )
-      } catch {
-        await execFileAsync('open', ['-a', 'iTerm2', dir]).catch(() =>
-          execFileAsync('open', ['-a', 'iTerm', dir]).catch(() => {})
-        )
-      }
-      return
     case 'cursor':
-      if (await focusApp('Cursor')) return
-      break
+      if (await focusApp('Cursor')) {
+        return {
+          ok: true,
+          method: 'focused-app',
+          app: 'cursor',
+          message:
+            'Focused Cursor. Integrated terminals are not scriptable — switch to the panel where this process is running (⌃`).'
+        }
+      }
+      return {
+        ok: false,
+        method: 'failed',
+        app: 'cursor',
+        message: 'Could not focus Cursor for this process.'
+      }
     case 'vscode':
-      if (await focusApp('Visual Studio Code')) return
+      if (await focusApp('Visual Studio Code')) {
+        return {
+          ok: true,
+          method: 'focused-app',
+          app: 'vscode',
+          message:
+            'Focused VS Code. Integrated terminals are not scriptable — switch to the panel where this process is running (⌃`).'
+        }
+      }
+      return {
+        ok: false,
+        method: 'failed',
+        app: 'vscode',
+        message: 'Could not focus VS Code for this process.'
+      }
+    case 'warp':
+      if ((await focusApp('Warp')) || (await focusApp('Warp Preview'))) {
+        return {
+          ok: true,
+          method: 'focused-app',
+          app: 'warp',
+          message:
+            'Focused Warp. Warp does not expose session APIs — pick the tab that is already running this process.'
+        }
+      }
+      return {
+        ok: false,
+        method: 'failed',
+        app: 'warp',
+        message: 'Could not focus Warp for this process.'
+      }
+    case 'terminal': {
+      // Bring Terminal forward without spawning a new tab when we couldn't match tty
+      // (Automation permission denied, or tty race). Prefer focus over `do script`.
+      if (await focusApp('Terminal')) {
+        return {
+          ok: true,
+          method: 'focused-app',
+          app: 'terminal',
+          message:
+            'Focused Terminal but could not match the exact tab. Select the tab already running this process.'
+        }
+      }
       break
-    case 'warp': {
-      const opened = await openWarpTabAtDirectory(dir)
-      if (opened) {
-        void focusApp('Warp').catch(() => focusApp('Warp Preview'))
-        return
+    }
+    case 'iterm': {
+      if ((await focusApp('iTerm2')) || (await focusApp('iTerm'))) {
+        return {
+          ok: true,
+          method: 'focused-app',
+          app: 'iterm',
+          message:
+            'Focused iTerm but could not match the exact session. Select the tab already running this process.'
+        }
       }
       break
     }
   }
 
-  execFileAsync('/usr/bin/osascript', [
-    '-e', 'tell application "Terminal"',
-    '-e', '  activate',
-    '-e', `  do script "${asQuote(`cd ${shQuote(dir)}`)}"`,
-    '-e', 'end tell'
-  ]).catch(() => {})
+  // Unknown host and no tty match — only then open a fresh Terminal at cwd
+  try {
+    await execFileAsync('/usr/bin/osascript', [
+      '-e',
+      'tell application "Terminal"',
+      '-e',
+      '  activate',
+      '-e',
+      `  do script "${asQuote(`cd ${shQuote(dir)}`)}"`,
+      '-e',
+      'end tell'
+    ])
+    return {
+      ok: true,
+      method: 'fallback',
+      app: 'terminal',
+      message:
+        'No attachable tty found for this process — opened a new Terminal at the project folder.'
+    }
+  } catch {
+    return {
+      ok: false,
+      method: 'failed',
+      app,
+      message: 'Could not open or focus a terminal for this process.'
+    }
+  }
 }
 
 export async function openInVSCode(pid: number, projectPath?: string): Promise<void> {
@@ -712,7 +773,9 @@ export async function restartProcess(
     case 'warp': {
       const ok = await openWarpTabAtDirectory(cwd)
       if (ok) {
-        void focusApp('Warp').catch(() => focusApp('Warp Preview'))
+        if (autoFocusTerminal) {
+          void focusApp('Warp').catch(() => focusApp('Warp Preview'))
+        }
         return {
           success: true,
           hint: 'Warp: new tab opened — press ↑ for history or run your dev command again.'
@@ -721,16 +784,20 @@ export async function restartProcess(
       break
     }
     case 'cursor':
-      await focusApp('Cursor')
+      if (autoFocusTerminal) await focusApp('Cursor')
       return {
         success: true,
-        hint: 'Cursor focused — re-run the command in the integrated terminal (↑ for history).'
+        hint: autoFocusTerminal
+          ? 'Cursor focused — re-run the command in the integrated terminal (↑ for history).'
+          : 'Restarted. Re-run the command in Cursor’s integrated terminal (↑ for history).'
       }
     case 'vscode':
-      await focusApp('Visual Studio Code')
+      if (autoFocusTerminal) await focusApp('Visual Studio Code')
       return {
         success: true,
-        hint: 'VS Code focused — re-run the command in the integrated terminal (↑ for history).'
+        hint: autoFocusTerminal
+          ? 'VS Code focused — re-run the command in the integrated terminal (↑ for history).'
+          : 'Restarted. Re-run the command in VS Code’s integrated terminal (↑ for history).'
       }
     default:
       break
@@ -740,12 +807,16 @@ export async function restartProcess(
   // survive AppleScript string quoting (quotes/backslashes broke this).
   const sp = writeRestartShellScript(cwd, fullCommand)
   const esc = asQuote(sp)
-  execFileAsync('/usr/bin/osascript', [
-    '-e', 'tell application "Terminal"',
-    '-e', '  activate',
-    '-e', `  do script "exec /bin/bash \\"${esc}\\""`,
-    '-e', 'end tell'
-  ])
+  const fallbackLines = [
+    'tell application "Terminal"',
+    ...(autoFocusTerminal ? ['  activate'] : []),
+    `  do script "exec /bin/bash \\"${esc}\\""`,
+    'end tell'
+  ]
+  execFileAsync(
+    '/usr/bin/osascript',
+    fallbackLines.flatMap((l) => ['-e', l])
+  )
     .then(() => scheduleDeleteScript(sp))
     .catch(() => {
       try {

@@ -2,13 +2,23 @@ import { create } from 'zustand'
 import type { ModuleId, NavLocation, Toast } from '../../../shared/types'
 import { DEFAULT_NAV } from '../../../shared/types'
 
+type PortsNav = Extract<NavLocation, { module: 'ports' }>
+type TextNav = Extract<NavLocation, { module: 'text' }>
+type DatabaseNav = Extract<NavLocation, { module: 'database' }>
+type SettingsNav = Extract<NavLocation, { module: 'settings' }>
+
 interface UIState {
   nav: NavLocation
   navStack: NavLocation[]
+  lastPortsNav: PortsNav | null
+  lastTextNav: TextNav | null
+  lastDatabaseNav: DatabaseNav | null
+  lastSettingsNav: SettingsNav | null
   isCommandPaletteOpen: boolean
   isQuickPeekOpen: boolean
   quickPeekPid: number | null
-  isSidebarCollapsed: boolean
+  /** Hide app chrome so Diff/Formatter fill the window (paired with native fullscreen). */
+  isWorkspaceImmersive: boolean
   toasts: Toast[]
   expandedRows: Set<number>
   confirmDialog: {
@@ -23,13 +33,11 @@ interface UIState {
   setNav: (nav: NavLocation, pushStack?: boolean) => void
   goBack: () => void
   openModule: (module: ModuleId) => void
-  /** @deprecated use setNav / openModule */
-  setView: (view: string) => void
   toggleCommandPalette: () => void
   closeCommandPalette: () => void
   openQuickPeek: (pid: number) => void
   closeQuickPeek: () => void
-  toggleSidebar: () => void
+  setWorkspaceImmersive: (value: boolean) => void
   toggleRowExpansion: (pid: number) => void
   addToast: (toast: Omit<Toast, 'id'>) => void
   removeToast: (id: string) => void
@@ -49,46 +57,39 @@ function defaultForModule(module: ModuleId): NavLocation {
       return { module: 'ports', screen: 'dashboard' }
     case 'text':
       return { module: 'text', screen: 'landing' }
-    case 'clipboard':
-      return { module: 'clipboard', screen: 'history' }
     case 'database':
       return { module: 'database', screen: 'connections' }
-    case 'git':
-      return { module: 'git', screen: 'changes' }
     case 'settings':
       return { module: 'settings', screen: 'general' }
   }
 }
 
-/** Map legacy view ids to NavLocation for transitional call sites */
-function legacyViewToNav(view: string): NavLocation {
-  switch (view) {
-    case 'dashboard':
-      return { module: 'ports', screen: 'dashboard' }
-    case 'heatmap':
-      return { module: 'ports', screen: 'heatmap' }
-    case 'logs':
-      return { module: 'ports', screen: 'logs' }
-    case 'settings':
-      return { module: 'settings', screen: 'general' }
-    case 'ports':
-    case 'text':
-    case 'clipboard':
-    case 'database':
-    case 'git':
-      return defaultForModule(view)
-    default:
-      return DEFAULT_NAV
+function rememberNav(
+  nav: NavLocation,
+  prev: Pick<
+    UIState,
+    'lastPortsNav' | 'lastTextNav' | 'lastDatabaseNav' | 'lastSettingsNav'
+  >
+) {
+  return {
+    lastPortsNav: nav.module === 'ports' ? nav : prev.lastPortsNav,
+    lastTextNav: nav.module === 'text' ? nav : prev.lastTextNav,
+    lastDatabaseNav: nav.module === 'database' ? nav : prev.lastDatabaseNav,
+    lastSettingsNav: nav.module === 'settings' ? nav : prev.lastSettingsNav
   }
 }
 
 export const useUIStore = create<UIState>((set, get) => ({
   nav: DEFAULT_NAV,
   navStack: [],
+  lastPortsNav: null,
+  lastTextNav: null,
+  lastDatabaseNav: null,
+  lastSettingsNav: null,
   isCommandPaletteOpen: false,
   isQuickPeekOpen: false,
   quickPeekPid: null,
-  isSidebarCollapsed: false,
+  isWorkspaceImmersive: false,
   toasts: [],
   expandedRows: new Set(),
   confirmDialog: null,
@@ -98,7 +99,9 @@ export const useUIStore = create<UIState>((set, get) => ({
       nav,
       navStack: pushStack
         ? [...s.navStack.slice(-7), s.nav]
-        : s.navStack
+        : s.navStack,
+      isWorkspaceImmersive: false,
+      ...rememberNav(nav, s)
     })),
 
   goBack: () =>
@@ -106,15 +109,27 @@ export const useUIStore = create<UIState>((set, get) => ({
       if (s.navStack.length === 0) return s
       const stack = [...s.navStack]
       const prev = stack.pop()!
-      return { nav: prev, navStack: stack }
+      return {
+        nav: prev,
+        navStack: stack,
+        isWorkspaceImmersive: false,
+        ...rememberNav(prev, s)
+      }
     }),
 
   openModule: (module) => {
-    get().setNav(defaultForModule(module))
-  },
-
-  setView: (view) => {
-    get().setNav(legacyViewToNav(view))
+    const s = get()
+    const restored =
+      module === 'ports'
+        ? s.lastPortsNav
+        : module === 'text'
+          ? s.lastTextNav
+          : module === 'database'
+            ? s.lastDatabaseNav
+            : module === 'settings'
+              ? s.lastSettingsNav
+              : null
+    get().setNav(restored ?? defaultForModule(module))
   },
 
   toggleCommandPalette: () =>
@@ -125,11 +140,16 @@ export const useUIStore = create<UIState>((set, get) => ({
   openQuickPeek: (pid) =>
     set({ isQuickPeekOpen: true, quickPeekPid: pid }),
 
-  closeQuickPeek: () =>
-    set({ isQuickPeekOpen: false, quickPeekPid: null }),
+  closeQuickPeek: () => {
+    set({ isQuickPeekOpen: false, quickPeekPid: null })
+    // Drop heatmap/table keyboard highlight so the accent ring does not stick
+    // after the modal closes. Lazy import avoids a portStore ↔ uiStore cycle.
+    void import('./portStore').then(({ usePortStore }) => {
+      usePortStore.setState({ selectedIndex: -1 })
+    })
+  },
 
-  toggleSidebar: () =>
-    set((s) => ({ isSidebarCollapsed: !s.isSidebarCollapsed })),
+  setWorkspaceImmersive: (value) => set({ isWorkspaceImmersive: value }),
 
   toggleRowExpansion: (pid) => {
     const { expandedRows } = get()
