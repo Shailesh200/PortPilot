@@ -39,6 +39,7 @@ export const IpcChannel = {
   loadProfiles: 'load-profiles',
   saveProfiles: 'save-profiles',
   getAppVersion: 'get-app-version',
+  eraseAllAppData: 'erase-all-app-data',
   quitAndInstall: 'quit-and-install',
 
   windowIsFullScreen: 'window-is-full-screen',
@@ -187,6 +188,7 @@ export type InvokeMap = {
   [IpcChannel.loadProfiles]: { args: []; result: ProfilesPersistState }
   [IpcChannel.saveProfiles]: { args: [state: ProfilesPersistState]; result: boolean }
   [IpcChannel.getAppVersion]: { args: []; result: string }
+  [IpcChannel.eraseAllAppData]: { args: []; result: void }
   [IpcChannel.quitAndInstall]: { args: []; result: void }
 
   [IpcChannel.windowIsFullScreen]: { args: []; result: boolean }

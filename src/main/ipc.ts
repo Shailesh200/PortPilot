@@ -11,7 +11,8 @@ import {
   openInVSCode,
   restartProcess,
   setAutoFocusTerminal,
-  getAppVersion
+  getAppVersion,
+  eraseAllAppDataAndQuit
 } from './os'
 import { markExpectedStopsForPid } from './services/expected-stops'
 import {
@@ -237,6 +238,10 @@ export function registerIpcHandlers(): void {
   })
 
   handleInvoke(IpcChannel.getAppVersion, async () => getAppVersion())
+
+  handleInvoke(IpcChannel.eraseAllAppData, () => {
+    setImmediate(() => eraseAllAppDataAndQuit())
+  })
 
   handleInvoke(IpcChannel.windowIsFullScreen, (event) => {
     const win = BrowserWindow.fromWebContents(event.sender)

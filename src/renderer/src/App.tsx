@@ -70,8 +70,8 @@ export default function App() {
 
   useKeyboardShortcuts()
 
-  // Persist nav across sessions, but hydrate AFTER first paint so cold start
-  // always begins on the light Ports shell (DEFAULT_NAV).
+  // Restore last-in-module screens after first paint. Current `nav` is not
+  // persisted — cold start always stays on Ports.
   useEffect(() => {
     let cancelled = false
     const restore = (): void => {

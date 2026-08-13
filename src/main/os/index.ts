@@ -26,13 +26,26 @@ export {
   userDataFile,
   getAppVersion,
   isAppPackaged,
-  getAppPath
+  getAppPath,
+  getMacKeychainTrustPath
 } from './paths'
 export {
   isSecureStorageAvailable,
   encryptSecret,
-  decryptSecret
+  decryptSecret,
+  storedSecretUnreadable
 } from './secure-store'
+export {
+  saveSecret,
+  loadSecret,
+  deleteSecrets,
+  deleteAllSecrets,
+  secretIndexHas,
+  clearSessionSecrets,
+  rememberSecret,
+  forgetPersistedSecret
+} from './secrets-vault'
+export { eraseAllAppDataAndQuit } from './app-data'
 export { readClipboardText, writeClipboardText } from './clipboard'
 export { openExternal } from './shell'
 export {

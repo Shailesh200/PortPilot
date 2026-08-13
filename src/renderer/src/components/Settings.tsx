@@ -447,6 +447,7 @@ function SafetySettings() {
   const clearHistory = usePortStore((s) => s.clearHistory)
   const resetSettings = useSettingsStore((s) => s.resetSettings)
   const addToast = useUIStore((s) => s.addToast)
+  const showConfirm = useUIStore((s) => s.showConfirm)
 
   const handleExportSettings = () => {
     const state = useSettingsStore.getState()
@@ -630,6 +631,30 @@ function SafetySettings() {
         >
           <RotateCcw className="w-3 h-3" />
           Reset
+        </button>
+      </SettingRow>
+
+      <SettingRow
+        label="Erase all PortPilot data"
+        description="Delete connections, saved passwords, query history, clipboard, and settings, then quit. Dragging the app to Trash on Mac does not remove this data."
+      >
+        <button
+          onClick={() => {
+            showConfirm({
+              title: 'Erase all PortPilot data?',
+              message:
+                'This permanently deletes local PortPilot data, including database passwords, then quits. This cannot be undone.',
+              variant: 'danger',
+              confirmLabel: 'Erase and quit',
+              onConfirm: () => {
+                void window.api.eraseAllAppData()
+              }
+            })
+          }}
+          className="flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-danger/10 text-danger hover:bg-danger/20 text-xs font-medium transition-colors"
+        >
+          <Trash2 className="w-3 h-3" />
+          Erase
         </button>
       </SettingRow>
 

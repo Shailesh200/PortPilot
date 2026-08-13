@@ -167,6 +167,7 @@ export interface IpcApi {
   loadProfiles: () => Promise<ProfilesPersistState>
   saveProfiles: (state: ProfilesPersistState) => Promise<boolean>
   getAppVersion: () => Promise<string>
+  eraseAllAppData: () => Promise<void>
   quitAndInstall: () => Promise<void>
   onPortsUpdate: (callback: (ports: PortInfo[]) => void) => () => void
   onFocusSearch: (callback: () => void) => () => void
@@ -461,11 +462,15 @@ export interface DbConnectionPublic {
   sshUser?: string
   sshPrivateKeyPath?: string
   sshLocalPort?: number
+  hasPassword?: boolean
+  hasSshPassword?: boolean
 }
 
 export interface DbConnectionInput extends DbConnectionPublic {
   password?: string
   sshPassword?: string
+  /** Persist to OS keychain. Default true. False = this session only. */
+  savePassword?: boolean
 }
 
 export interface DbQueryHistoryItem {

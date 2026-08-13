@@ -8,7 +8,13 @@ import {
 import { randomUUID } from 'crypto'
 import {
   decryptSecret,
-  encryptSecret,
+  storedSecretUnreadable,
+  saveSecret,
+  loadSecret,
+  deleteSecrets,
+  secretIndexHas,
+  rememberSecret,
+  forgetPersistedSecret,
   getUserDataPath,
   userDataFile
 } from '../../os'
@@ -41,6 +47,9 @@ export interface DbConnectionProfile extends DbConnectionPublic {
   passwordEnc?: string
   sshPasswordEnc?: string
 }
+
+const RESAVE_SECRET_ERROR =
+  'Saved password can’t be read. Open the connection, enter the password, and save it again.'
 
 interface StoreFile {
   connections: DbConnectionProfile[]
@@ -88,7 +97,12 @@ export function loadDbStore(): StoreFile {
 
 export function listConnections(): DbConnectionPublic[] {
   return store.connections.map(
-    ({ passwordEnc: _p, sshPasswordEnc: _s, ...rest }) => rest
+    ({ passwordEnc, sshPasswordEnc, ...rest }) => ({
+      ...rest,
+      hasPassword: Boolean(passwordEnc) || secretIndexHas(rest.id, 'password'),
+      hasSshPassword:
+        Boolean(sshPasswordEnc) || secretIndexHas(rest.id, 'ssh')
+    })
   )
 }
 
@@ -101,22 +115,51 @@ export function saveConnection(
   profile: DbConnectionProfile & {
     password?: string
     sshPassword?: string
+    savePassword?: boolean
+    hasPassword?: boolean
+    hasSshPassword?: boolean
   }
 ): void {
-  const { password, sshPassword, ...rest } = profile
+  const {
+    password,
+    sshPassword,
+    savePassword = true,
+    hasPassword: _hasPassword,
+    hasSshPassword: _hasSshPassword,
+    ...rest
+  } = profile
   const existing = store.connections.find((c) => c.id === profile.id)
-  const passwordEnc =
-    password !== undefined && password.length > 0
-      ? encryptSecret(password)
-      : existing?.passwordEnc
-  const sshPasswordEnc =
-    sshPassword !== undefined && sshPassword.length > 0
-      ? encryptSecret(sshPassword)
-      : existing?.sshPasswordEnc
-  const next: DbConnectionProfile = {
-    ...rest,
-    passwordEnc,
-    sshPasswordEnc
+
+  const applySecret = (kind: 'password' | 'ssh', value?: string) => {
+    if (value) {
+      if (savePassword) saveSecret(profile.id, kind, value)
+      else {
+        rememberSecret(profile.id, kind, value)
+        forgetPersistedSecret(profile.id, kind)
+      }
+      return
+    }
+    if (!savePassword) forgetPersistedSecret(profile.id, kind)
+  }
+  applySecret('password', password)
+  applySecret('ssh', sshPassword)
+
+  const next: DbConnectionProfile = { ...rest }
+  if (
+    savePassword &&
+    !password &&
+    existing?.passwordEnc &&
+    !secretIndexHas(profile.id, 'password')
+  ) {
+    next.passwordEnc = existing.passwordEnc
+  }
+  if (
+    savePassword &&
+    !sshPassword &&
+    existing?.sshPasswordEnc &&
+    !secretIndexHas(profile.id, 'ssh')
+  ) {
+    next.sshPasswordEnc = existing.sshPasswordEnc
   }
   const idx = store.connections.findIndex((c) => c.id === next.id)
   if (idx >= 0) store.connections[idx] = next
@@ -128,8 +171,31 @@ export function deleteConnection(id: string): void {
   store.connections = store.connections.filter((c) => c.id !== id)
   store.history = store.history.filter((h) => h.connectionId !== id)
   store.savedQueries = store.savedQueries.filter((q) => q.connectionId !== id)
+  deleteSecrets(id)
   void disconnect(id)
   persist()
+}
+
+function resolveSecret(
+  profile: DbConnectionProfile,
+  kind: 'password' | 'ssh'
+): { value: string; needsResave: boolean } {
+  const fromVault = loadSecret(profile.id, kind)
+  if (fromVault) return { value: fromVault, needsResave: false }
+  const legacyEnc =
+    kind === 'password' ? profile.passwordEnc : profile.sshPasswordEnc
+  if (!legacyEnc) return { value: '', needsResave: false }
+  if (storedSecretUnreadable(legacyEnc)) {
+    return { value: '', needsResave: true }
+  }
+  const plain = decryptSecret(legacyEnc)
+  if (plain) {
+    saveSecret(profile.id, kind, plain)
+    if (kind === 'password') delete profile.passwordEnc
+    else delete profile.sshPasswordEnc
+    persist()
+  }
+  return { value: plain, needsResave: false }
 }
 
 function closeTunnel(id: string): void {
@@ -158,12 +224,16 @@ async function ensureSshTunnel(
     }
   }
   closeTunnel(id)
+  const sshSecret = resolveSecret(profile, 'ssh')
+  if (sshSecret.needsResave) {
+    return { error: RESAVE_SECRET_ERROR }
+  }
   try {
     const handle = await openSshTunnel({
       sshHost: profile.sshHost.trim(),
       sshPort: profile.sshPort || 22,
       sshUser: profile.sshUser.trim(),
-      sshPassword: decryptSecret(profile.sshPasswordEnc) || undefined,
+      sshPassword: sshSecret.value || undefined,
       privateKeyPath: profile.sshPrivateKeyPath || undefined,
       targetHost,
       targetPort,
@@ -411,7 +481,11 @@ export async function connect(
   if (!profile) return { ok: false, error: 'Connection not found' }
   try {
     await disconnect(id)
-    const storedPassword = decryptSecret(profile.passwordEnc)
+    const passwordSecret = resolveSecret(profile, 'password')
+    if (passwordSecret.needsResave) {
+      return { ok: false, error: RESAVE_SECRET_ERROR }
+    }
+    const storedPassword = passwordSecret.value
     switch (profile.engine) {
       case 'postgres': {
         const fromUrl = profile.host ? parseSqlUrl(profile.host) : null

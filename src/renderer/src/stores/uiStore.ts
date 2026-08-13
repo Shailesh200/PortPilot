@@ -185,15 +185,33 @@ export const useUIStore = create<UIState>()(
     }),
     {
       name: 'portpilot-ui',
-      // First paint uses DEFAULT_NAV; App.tsx calls rehydrate() after idle.
+      // Cold start always uses DEFAULT_NAV (Ports). App.tsx rehydrates
+      // last-* so the sidebar can restore the last screen inside a module.
       skipHydration: true,
       partialize: (s) => ({
-        nav: s.nav,
         lastPortsNav: s.lastPortsNav,
         lastTextNav: s.lastTextNav,
         lastDatabaseNav: s.lastDatabaseNav,
         lastSettingsNav: s.lastSettingsNav
-      })
+      }),
+      merge: (persisted, current) => {
+        const p = (persisted ?? {}) as Partial<
+          Pick<
+            UIState,
+            | 'lastPortsNav'
+            | 'lastTextNav'
+            | 'lastDatabaseNav'
+            | 'lastSettingsNav'
+          >
+        >
+        return {
+          ...current,
+          lastPortsNav: p.lastPortsNav ?? current.lastPortsNav,
+          lastTextNav: p.lastTextNav ?? current.lastTextNav,
+          lastDatabaseNav: p.lastDatabaseNav ?? current.lastDatabaseNav,
+          lastSettingsNav: p.lastSettingsNav ?? current.lastSettingsNav
+        }
+      }
     }
   )
 )

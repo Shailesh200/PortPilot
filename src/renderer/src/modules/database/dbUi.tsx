@@ -240,6 +240,9 @@ export function emptyConnectionForm(): {
   sshPassword: string
   sshPrivateKeyPath: string
   sshLocalPort: number
+  savePassword: boolean
+  hasPassword: boolean
+  hasSshPassword: boolean
 } {
   return {
     id: '',
@@ -260,7 +263,10 @@ export function emptyConnectionForm(): {
     sshUser: '',
     sshPassword: '',
     sshPrivateKeyPath: '',
-    sshLocalPort: 0
+    sshLocalPort: 0,
+    savePassword: true,
+    hasPassword: false,
+    hasSshPassword: false
   }
 }
 
@@ -293,7 +299,10 @@ export function formFromConnection(c: DbConnectionPublic) {
     sshUser: c.sshUser || '',
     sshPassword: '',
     sshPrivateKeyPath: c.sshPrivateKeyPath || '',
-    sshLocalPort: c.sshLocalPort ?? 0
+    sshLocalPort: c.sshLocalPort ?? 0,
+    savePassword: true,
+    hasPassword: !!c.hasPassword,
+    hasSshPassword: !!c.hasSshPassword
   }
 }
 

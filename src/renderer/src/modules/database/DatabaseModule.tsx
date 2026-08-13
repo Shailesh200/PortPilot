@@ -1552,7 +1552,11 @@ function ConnectionsScreen({
                             setForm({ ...form, password: e.target.value })
                           }
                           placeholder={
-                            editing ? '•••••••• (paste to replace)' : 'eyJ…'
+                            form.hasPassword
+                              ? 'Saved — paste to replace'
+                              : editing
+                                ? '•••••••• (paste to replace)'
+                                : 'eyJ…'
                           }
                         />
                         <button
@@ -1660,7 +1664,9 @@ function ConnectionsScreen({
                           onChange={(e) =>
                             setForm({ ...form, password: e.target.value })
                           }
-                          placeholder={editing ? '••••••••' : ''}
+                          placeholder={
+                            form.hasPassword ? 'Saved — type to replace' : ''
+                          }
                         />
                         <button
                           type="button"
@@ -1691,6 +1697,20 @@ function ConnectionsScreen({
                   </>
                 )}
               </div>
+
+              {form.engine !== 'sqlite' && (
+                <div className="space-y-3 border-t border-border-subtle pt-4">
+                  <ToolToggle
+                    label="Save password for next launch"
+                    checked={form.savePassword}
+                    onChange={(v) => setForm({ ...form, savePassword: v })}
+                  />
+                  <p className="-mt-1 text-[11px] text-text-muted">
+                    Stored in the OS keychain (this session keeps it in memory
+                    either way). Uncheck to type it again after you quit.
+                  </p>
+                </div>
+              )}
 
               {form.engine !== 'sqlite' && form.engine !== 'libsql' && (
                 <div className="space-y-3 border-t border-border-subtle pt-4">
@@ -1799,7 +1819,11 @@ function ConnectionsScreen({
                               setForm({ ...form, sshPassword: e.target.value })
                             }
                             placeholder={
-                              editing ? '•••••••• (leave blank to keep)' : ''
+                              form.hasSshPassword
+                                ? 'Saved — type to replace'
+                                : editing
+                                  ? 'Leave blank to keep'
+                                  : ''
                             }
                           />
                           <button

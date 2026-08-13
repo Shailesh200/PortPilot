@@ -26,6 +26,7 @@ const api: IpcApi = {
   loadProfiles: () => invoke(IpcChannel.loadProfiles),
   saveProfiles: (state) => invoke(IpcChannel.saveProfiles, state),
   getAppVersion: () => invoke(IpcChannel.getAppVersion),
+  eraseAllAppData: () => invoke(IpcChannel.eraseAllAppData),
   quitAndInstall: () => invoke(IpcChannel.quitAndInstall),
 
   onPortsUpdate: (callback) => onEvent(IpcEvent.portsUpdated, callback),

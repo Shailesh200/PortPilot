@@ -27,6 +27,9 @@
     "asarUnpack": [
       "**/*.node"
     ],
+    "electronFuses": {
+      "enableCookieEncryption": false
+    },
     "afterPack": "./scripts/verify-asar.cjs",
     "mac": {
       "category": "public.app-category.developer-tools",
@@ -54,7 +57,8 @@
     },
     "nsis": {
       "oneClick": true,
-      "allowToChangeInstallationDirectory": false
+      "allowToChangeInstallationDirectory": false,
+      "deleteAppDataOnUninstall": true
     },
     "dmg": {
       "sign": true

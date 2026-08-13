@@ -22,3 +22,12 @@ export function isAppPackaged(): boolean {
 export function getAppPath(): string {
   return app.getAppPath()
 }
+
+/** .app bundle (packaged) or the Electron helper (dev) for Keychain ACLs. */
+export function getMacKeychainTrustPath(): string {
+  if (!app.isPackaged) return process.execPath
+  const exe = app.getPath('exe')
+  const marker = '.app/'
+  const idx = exe.indexOf(marker)
+  return idx >= 0 ? exe.slice(0, idx + marker.length - 1) : exe
+}
