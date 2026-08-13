@@ -92,16 +92,7 @@ jobs:
 
           mkdir -p "$RUNNER_TEMP/private_keys"
           export P12_FILE="$RUNNER_TEMP/private_keys/developer-id.p12"
-          python3 - <<'PY'
-import base64, os, pathlib
-raw = os.environ["CSC_LINK_SECRET"]
-data = base64.b64decode("".join(raw.split()))
-path = pathlib.Path(os.environ["P12_FILE"])
-path.write_bytes(data)
-if not data:
-    raise SystemExit("CSC_LINK decoded to empty bytes")
-print(f"Decoded Developer ID p12 ({len(data)} bytes)")
-PY
+          python3 scripts/decode-csc-link.py
           openssl pkcs12 -in "$P12_FILE" -nokeys -passin env:CSC_KEY_PASSWORD >/dev/null 2>/dev/null \
             || openssl pkcs12 -in "$P12_FILE" -nokeys -legacy -passin env:CSC_KEY_PASSWORD >/dev/null
 
