@@ -10,8 +10,8 @@
     "preview": "electron-vite preview",
     "typecheck": "tsc -b --pretty false --noEmit",
     "pack": "electron-vite build && bun run dist:mac",
-    "dist:mac": "node scripts/ensure-node.cjs && electron-builder --mac",
-    "dist:win": "node scripts/ensure-node.cjs && electron-builder --win",
+    "dist:mac": "node scripts/ensure-node.cjs && node node_modules/electron-builder/cli.js --mac",
+    "dist:win": "node scripts/ensure-node.cjs && node node_modules/electron-builder/cli.js --win --x64",
     "postinstall": "electron-builder install-app-deps",
     "bench": "bun run build && python3 scripts/bench-baseline.py"
   },
@@ -19,8 +19,10 @@
     "appId": "com.portpilot.app",
     "productName": "PortPilot",
     "asar": true,
+    "npmRebuild": false,
     "files": [
-      "out/**/*"
+      "out",
+      "package.json"
     ],
     "asarUnpack": [
       "**/*.node"
@@ -41,9 +43,14 @@
     },
     "win": {
       "target": [
-        "nsis"
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
       ],
-      "icon": "resources/icon.ico"
+      "icon": "resources/icon.png"
     },
     "nsis": {
       "oneClick": true,

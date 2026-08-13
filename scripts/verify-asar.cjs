@@ -3,31 +3,73 @@
 const fs = require('fs')
 const path = require('path')
 
-/**
- * Fail the pack if app.asar file offsets are scrambled.
- * A growing builder log in the project root (from `tee`) used to get packed
- * into the archive and shift every file — the app then exited on launch.
- */
-module.exports = async function afterPack(context) {
-  const { appOutDir, packager, electronPlatformName } = context
-  const name = packager.appInfo.productFilename
-  const asarPath =
-    electronPlatformName === 'darwin'
-      ? path.join(appOutDir, `${name}.app/Contents/Resources/app.asar`)
-      : path.join(appOutDir, 'resources', 'app.asar')
-
-  if (!fs.existsSync(asarPath)) {
-    throw new Error(`afterPack: app.asar missing at ${asarPath}`)
+function findAsar(appOutDir, productName, platform) {
+  const candidates = [
+    path.join(appOutDir, `${productName}.app`, 'Contents', 'Resources', 'app.asar'),
+    path.join(appOutDir, 'resources', 'app.asar'),
+    path.join(appOutDir, 'app.asar')
+  ]
+  for (const p of candidates) {
+    if (fs.existsSync(p)) return p
   }
+  const stack = [appOutDir]
+  while (stack.length) {
+    const dir = stack.pop()
+    let entries = []
+    try {
+      entries = fs.readdirSync(dir, { withFileTypes: true })
+    } catch {
+      continue
+    }
+    for (const ent of entries) {
+      const full = path.join(dir, ent.name)
+      if (ent.isFile() && ent.name === 'app.asar') return full
+      if (ent.isDirectory() && ent.name !== 'node_modules') stack.push(full)
+    }
+  }
+  throw new Error(
+    `afterPack: app.asar missing (platform=${platform} appOutDir=${appOutDir})`
+  )
+}
 
+function extractUtf8(asar, asarPath, file) {
+  const variants = [file, file.replace(/\//g, '\\'), `/${file}`]
+  let lastErr
+  for (const name of variants) {
+    try {
+      return asar.extractFile(asarPath, name).toString('utf8')
+    } catch (err) {
+      lastErr = err
+    }
+  }
+  let listed = '(unable to list)'
+  try {
+    listed = asar.listPackage(asarPath).slice(0, 40).join(', ')
+  } catch {
+    /* ignore */
+  }
+  throw new Error(
+    `afterPack: could not read ${file} from ${asarPath}: ${
+      lastErr && lastErr.message
+    }. sample=${listed}`
+  )
+}
+
+async function afterPack(context) {
+  const { appOutDir, packager, electronPlatformName } = context
+  const asarPath = findAsar(
+    appOutDir,
+    packager.appInfo.productFilename,
+    electronPlatformName
+  )
   const asar = require(
     require.resolve('@electron/asar', {
       paths: [path.dirname(require.resolve('app-builder-lib/package.json'))]
     })
   )
 
-  const pkg = asar.extractFile(asarPath, 'package.json').toString('utf8')
-  const main = asar.extractFile(asarPath, 'out/main/index.js').toString('utf8')
+  const pkg = extractUtf8(asar, asarPath, 'package.json')
+  const main = extractUtf8(asar, asarPath, 'out/main/index.js')
 
   if (!pkg.trim().startsWith('{')) {
     throw new Error(
@@ -41,3 +83,6 @@ module.exports = async function afterPack(context) {
     )
   }
 }
+
+module.exports = afterPack
+module.exports.afterPack = afterPack

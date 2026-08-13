@@ -142,7 +142,7 @@ jobs:
 
   release-win:
     needs: bump
-    runs-on: windows-latest
+    runs-on: windows-2022
     permissions:
       contents: write
       issues: write
@@ -205,7 +205,16 @@ jobs:
       - name: Build and publish Windows artifacts
         shell: bash
         run: |
+          set -o pipefail
           echo "node=$(node --version) which=$(command -v node)"
-          bun run dist:win -- --publish always
+          bun run dist:win -- --publish always 2>&1 | tee win-builder.log
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Upload Windows builder log
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: win-builder-log
+          path: win-builder.log
+          if-no-files-found: ignore
