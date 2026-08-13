@@ -1,4 +1,4 @@
-import { Activity } from 'lucide-react'
+import appIcon from '../assets/app-icon.png'
 
 export function TitleBar() {
   return (
@@ -7,9 +7,11 @@ export function TitleBar() {
       style={{ WebkitAppRegion: 'drag' } as React.CSSProperties}
     >
       <div className="flex items-center gap-2.5 pl-[80px]">
-        <div className="p-1 rounded-md bg-accent/10">
-          <Activity className="w-4 h-4 text-accent" />
-        </div>
+        <img
+          src={appIcon}
+          alt=""
+          className="w-5 h-5 rounded-[5px] shadow-sm"
+        />
         <span className="text-sm font-semibold text-text-primary tracking-tight">
           PortPilot
         </span>

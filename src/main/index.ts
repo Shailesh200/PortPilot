@@ -17,7 +17,7 @@ import {
 } from './ipc'
 import { createTray, destroyTray } from './tray'
 import { initAutoUpdater } from './updater'
-import { openExternal, setNotificationClickHandler, userDataFile } from './os'
+import { openExternal, setNotificationClickHandler, userDataFile, loadAppNativeImage, resolveAppIconPath } from './os'
 import { shutdownWorkbench } from './modules/workbench-ipc'
 import { DEFAULT_SETTINGS } from '../shared/defaults'
 import { IpcEvent } from '../shared/ipc'
@@ -104,6 +104,7 @@ function showMainWindow(): void {
 
 function createWindow(): void {
   const windowState = loadWindowState()
+  const appIcon = loadAppNativeImage()
 
   mainWindow = new BrowserWindow({
     ...windowState,
@@ -113,6 +114,7 @@ function createWindow(): void {
     trafficLightPosition: { x: 16, y: 16 },
     backgroundColor: '#09090b',
     show: false,
+    icon: appIcon.isEmpty() ? undefined : appIcon,
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
       sandbox: false,
@@ -223,6 +225,16 @@ if (!gotSingleInstanceLock) {
   })
 
   app.whenReady().then(() => {
+    const appIcon = loadAppNativeImage()
+    if (!appIcon.isEmpty()) {
+      if (process.platform === 'darwin' && app.dock) {
+        app.dock.setIcon(appIcon)
+      }
+      app.setAboutPanelOptions({
+        applicationName: 'PortPilot',
+        iconPath: resolveAppIconPath()
+      })
+    }
     registerIpcHandlers()
     setNotificationClickHandler(() => showMainWindow())
     createWindow()

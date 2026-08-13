@@ -18,8 +18,16 @@ export function resolveResourcePath(...segments: string[]): string {
   return candidates[0]
 }
 
+export function resolveAppIconPath(): string {
+  return resolveResourcePath('icon.png')
+}
+
 export function resolveTrayIconPath(): string {
   return resolveResourcePath('iconTemplate.png')
+}
+
+export function loadAppNativeImage(): Electron.NativeImage {
+  return nativeImage.createFromPath(resolveAppIconPath())
 }
 
 export function loadTrayNativeImage(): Electron.NativeImage {

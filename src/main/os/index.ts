@@ -17,7 +17,9 @@ export {
 export {
   resolveResourcePath,
   resolveTrayIconPath,
-  loadTrayNativeImage
+  resolveAppIconPath,
+  loadTrayNativeImage,
+  loadAppNativeImage
 } from './resources'
 export {
   getUserDataPath,

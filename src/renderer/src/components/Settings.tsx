@@ -16,7 +16,6 @@ import {
   Bell,
   Shield,
   User,
-  Zap,
   Plus,
   Trash2,
   RotateCcw,
@@ -25,6 +24,7 @@ import {
   Upload
 } from 'lucide-react'
 import { clsx } from 'clsx'
+import appIcon from '../assets/app-icon.png'
 
 type SettingsTab =
   | 'general'
@@ -922,7 +922,7 @@ export function Settings() {
         <div className="flex-1" />
         <div className="px-2 pt-3 mt-2 border-t border-border-subtle">
           <div className="flex items-center gap-2 text-[10px] text-text-muted">
-            <Zap className="w-3 h-3" />
+            <img src={appIcon} alt="" className="w-3.5 h-3.5 rounded-[3px]" />
             <span>PortPilot{appVersion ? ` v${appVersion}` : ''}</span>
           </div>
         </div>

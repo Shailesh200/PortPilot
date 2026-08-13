@@ -10,6 +10,8 @@
     "preview": "electron-vite preview",
     "typecheck": "tsc -b --pretty false --noEmit",
     "pack": "electron-vite build && electron-builder --mac --config",
+    "dist:mac": "electron-builder --mac",
+    "dist:win": "electron-builder --win",
     "postinstall": "electron-builder install-app-deps",
     "bench": "bun run build && python3 scripts/bench-baseline.py"
   },
@@ -17,6 +19,13 @@
     "appId": "com.portpilot.app",
     "productName": "PortPilot",
     "asar": true,
+    "files": [
+      "out/**/*"
+    ],
+    "asarUnpack": [
+      "**/*.node"
+    ],
+    "afterPack": "./scripts/verify-asar.cjs",
     "mac": {
       "category": "public.app-category.developer-tools",
       "target": [
@@ -119,7 +128,7 @@
     "@types/ssh2": "^1.15.5",
     "@types/turndown": "^5.0.6",
     "@vitejs/plugin-react": "^4.5.0",
-    "electron": "^35.0.0",
+    "electron": "40.10.6",
     "electron-builder": "^26.0.0",
     "electron-vite": "^5.0.0",
     "tailwindcss": "^4.1.0",
