@@ -67,7 +67,7 @@
       "provider": "github",
       "owner": "Shailesh200",
       "repo": "PortPilot",
-      "releaseType": "release"
+      "releaseType": "draft"
     },
     "extraResources": [
       {

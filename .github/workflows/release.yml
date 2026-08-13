@@ -42,6 +42,8 @@ jobs:
           echo "Bumped to v${NEW_VERSION}"
 
       - name: Commit version bump
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
@@ -50,6 +52,16 @@ jobs:
           git tag "v${{ steps.bump.outputs.version }}"
           git push
           git push --tags
+          # electron-builder 26 uploads assets in parallel and each upload may
+          # create its own GitHub release. Pre-create one draft so zip/dmg/exe
+          # all land on the same release (otherwise the tag page can show only
+          # a .blockmap).
+          VER="${{ steps.bump.outputs.version }}"
+          if gh release view "v${VER}" >/dev/null 2>&1; then
+            gh release edit "v${VER}" --draft --title "${VER}" --notes "v${VER}"
+          else
+            gh release create "v${VER}" --draft --title "${VER}" --notes "v${VER}"
+          fi
 
   release-mac:
     needs: bump
@@ -218,3 +230,18 @@ jobs:
           name: win-builder-log
           path: win-builder.log
           if-no-files-found: ignore
+
+  publish-release:
+    needs: [bump, release-mac, release-win]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Publish GitHub release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release edit "v${{ needs.bump.outputs.version }}" \
+            --repo "${{ github.repository }}" \
+            --draft=false \
+            --latest
