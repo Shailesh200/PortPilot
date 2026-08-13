@@ -9,9 +9,9 @@
     "build": "electron-vite build",
     "preview": "electron-vite preview",
     "typecheck": "tsc -b --pretty false --noEmit",
-    "pack": "electron-vite build && electron-builder --mac --config",
-    "dist:mac": "electron-builder --mac",
-    "dist:win": "electron-builder --win",
+    "pack": "electron-vite build && bun run dist:mac",
+    "dist:mac": "node scripts/ensure-node.cjs && electron-builder --mac",
+    "dist:win": "node scripts/ensure-node.cjs && electron-builder --win",
     "postinstall": "electron-builder install-app-deps",
     "bench": "bun run build && python3 scripts/bench-baseline.py"
   },
