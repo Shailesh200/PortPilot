@@ -22,7 +22,7 @@ A desktop utility for developers to monitor local ports and processes, and to wo
 - **Session Restore** -- picks up where you left off across Ports, Text, Database, and Settings
 - **Keyboard-first** -- shortcuts listed in Settings → Shortcuts (source: `src/shared/shortcuts.ts`)
 - **Themes** -- light and dark mode with system preference detection
-- **Update checks** -- in-app notice when a new release is available (macOS unsigned builds may still need a manual download)
+- **Auto-updater** -- get notified of new versions automatically
 
 ## Download
 
@@ -37,16 +37,13 @@ Download the latest release from the [GitHub Releases page](https://github.com/S
 
 1. Download the `.dmg` file from [Releases](https://github.com/Shailesh200/PortPilot/releases/latest)
 2. Open the DMG and drag **PortPilot** to your Applications folder
-3. Before opening for the first time, run this in Terminal:
+3. Open PortPilot from Applications
+
+Releases from v1.0.16 onward are signed and notarized. Older unsigned builds may still need:
 
 ```bash
 sudo xattr -rd com.apple.quarantine /Applications/PortPilot.app
-codesign --force --deep --sign - /Applications/PortPilot.app
 ```
-
-4. Open PortPilot from Applications
-
-> **Why is this needed?** The app is not signed with an Apple Developer certificate. macOS quarantines all apps downloaded from the internet, and unsigned apps are blocked by Gatekeeper. The commands above remove the quarantine flag and re-apply a valid ad-hoc signature.
 
 ### Windows Installation
 

@@ -359,9 +359,6 @@ function ShortcutsSettings() {
           <Divider />
         </div>
       ))}
-      <p className="text-[11px] text-text-muted mt-4">
-        Custom shortcut remapping coming in a future update.
-      </p>
     </div>
   )
 }

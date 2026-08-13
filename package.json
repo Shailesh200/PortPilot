@@ -24,7 +24,13 @@
         "zip"
       ],
       "icon": "resources/icon.png",
-      "identity": "-"
+      "hardenedRuntime": true,
+      "gatekeeperAssess": false,
+      "entitlements": "build/entitlements.mac.plist",
+      "entitlementsInherit": "build/entitlements.mac.plist",
+      "notarize": {
+        "teamId": "ARDSWV5GD2"
+      }
     },
     "win": {
       "target": [
@@ -37,7 +43,7 @@
       "allowToChangeInstallationDirectory": false
     },
     "dmg": {
-      "sign": false
+      "sign": true
     },
     "publish": {
       "provider": "github",
