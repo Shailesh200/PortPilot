@@ -11,6 +11,8 @@
     "typecheck": "tsc -b --pretty false --noEmit",
     "pack": "electron-vite build && bun run dist:mac",
     "dist:mac": "node scripts/ensure-node.cjs && node node_modules/electron-builder/cli.js --mac",
+    "dist:mas": "node scripts/ensure-node.cjs && node scripts/dist-mas.cjs",
+    "pack:mas": "electron-vite build && bun run dist:mas",
     "dist:win": "node scripts/ensure-node.cjs && node node_modules/electron-builder/cli.js --win --x64",
     "postinstall": "electron-builder install-app-deps",
     "bench": "bun run build && python3 scripts/bench-baseline.py"
@@ -30,7 +32,7 @@
     "electronFuses": {
       "enableCookieEncryption": false
     },
-    "afterPack": "./scripts/verify-asar.cjs",
+    "afterPack": "./scripts/after-pack.cjs",
     "mac": {
       "category": "public.app-category.developer-tools",
       "target": [
@@ -43,6 +45,25 @@
       "entitlements": "build/entitlements.mac.plist",
       "entitlementsInherit": "build/entitlements.mac.plist",
       "notarize": true
+    },
+    "mas": {
+      "type": "distribution",
+      "hardenedRuntime": false,
+      "gatekeeperAssess": false,
+      "notarize": false,
+      "entitlements": "build/entitlements.mas.plist",
+      "entitlementsInherit": "build/entitlements.mas.inherit.plist",
+      "entitlementsLoginHelper": "build/entitlements.mas.loginhelper.plist",
+      "preAutoEntitlements": false,
+      "provisioningProfile": "build/embedded.provisionprofile",
+      "identity": "Shailesh Jha (ARDSWV5GD2)",
+      "bundleShortVersion": "1.0.23",
+      "bundleVersion": "4",
+      "extendInfo": {
+        "ElectronTeamID": "ARDSWV5GD2",
+        "ITSAppUsesNonExemptEncryption": false,
+        "NSHumanReadableCopyright": "2026 Shailesh Jha"
+      }
     },
     "win": {
       "target": [

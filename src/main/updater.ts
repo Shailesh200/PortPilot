@@ -14,6 +14,12 @@ function send(mainWindow: BrowserWindow, info: UpdateInfo): void {
 }
 
 export function initAutoUpdater(mainWindow: BrowserWindow): void {
+  if (process.mas) {
+    log.info('Mac App Store build: skipping GitHub auto-update')
+    handleInvoke(IpcChannel.quitAndInstall, () => undefined)
+    return
+  }
+
   autoUpdater.on('update-available', (info) => {
     log.info('Update available:', info.version)
     send(mainWindow, { version: info.version, status: 'available' })

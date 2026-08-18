@@ -136,6 +136,9 @@ vite.config.ts.timestamp-*
 out/
 dist/
 
+# Mac App Store provisioning profile (local; re-download from Apple)
+build/*.provisionprofile
+
 # Agent / local tooling caches
 .prism/
 

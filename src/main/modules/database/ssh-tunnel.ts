@@ -32,6 +32,11 @@ export interface SshTunnelHandle {
 export async function openSshTunnel(
   req: SshTunnelRequest
 ): Promise<SshTunnelHandle> {
+  if (process.mas) {
+    throw new Error(
+      'SSH tunnels are not available in the Mac App Store build. Connect to the database host directly.'
+    )
+  }
   const sshPort = req.sshPort || 22
   const config: ConnectConfig = {
     host: req.sshHost,

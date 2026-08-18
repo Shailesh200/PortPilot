@@ -93,6 +93,9 @@ export function rememberSecret(
 }
 
 function keychainAvailable(): boolean {
+  // Sandboxed MAS builds cannot spawn /usr/bin/security. Secrets then use
+  // the encrypted file vault inside the app container.
+  if (process.mas) return false
   return process.platform === 'darwin' && existsSync('/usr/bin/security')
 }
 
