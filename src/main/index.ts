@@ -17,7 +17,7 @@ import {
 } from './ipc'
 import { createTray, destroyTray } from './tray'
 import { initAutoUpdater, installUpdateAndQuit } from './updater'
-import { openExternal, setNotificationClickHandler, userDataFile, loadAppNativeImage, resolveAppIconPath } from './os'
+import { openExternal, setNotificationClickHandler, userDataFile, isAppPackaged, loadAppNativeImage, resolveAppIconPath } from './os'
 import { shutdownWorkbench } from './modules/workbench-ipc'
 import { DEFAULT_SETTINGS } from '../shared/defaults'
 import { IpcEvent } from '../shared/ipc'
@@ -226,7 +226,10 @@ if (!gotSingleInstanceLock) {
   app.whenReady().then(() => {
     const appIcon = loadAppNativeImage()
     if (!appIcon.isEmpty()) {
-      if (process.platform === 'darwin' && app.dock) {
+      // Packaged Dock uses the bundle .icns so macOS can apply the same
+      // squircle mask as other apps. dock.setIcon() with a square PNG
+      // bypasses that mask and shows sharp corners.
+      if (process.platform === 'darwin' && app.dock && !isAppPackaged()) {
         app.dock.setIcon(appIcon)
       }
       app.setAboutPanelOptions({
