@@ -1,14 +1,8 @@
 import { BrowserWindow } from 'electron'
 import { sendEvent } from '../../ipc-handle'
 import { IpcEvent } from '../../../shared/ipc'
-import { getUserDataPath, userDataFile } from '../../os'
-import {
-  existsSync,
-  mkdirSync,
-  readFileSync,
-  renameSync,
-  writeFileSync
-} from 'fs'
+import { userDataFile, writeJsonAtomicSilent } from '../../os'
+import { existsSync, readFileSync } from 'fs'
 import { randomUUID } from 'crypto'
 import type {
   JsonDiffSnapshotInput,
@@ -27,16 +21,7 @@ function filePath(): string {
 }
 
 function persist(): void {
-  try {
-    const dir = getUserDataPath()
-    if (!existsSync(dir)) mkdirSync(dir, { recursive: true })
-    const target = filePath()
-    const tmp = `${target}.tmp`
-    writeFileSync(tmp, JSON.stringify({ items: snapshots }, null, 2), 'utf-8')
-    renameSync(tmp, target)
-  } catch {
-    /* ignore */
-  }
+  writeJsonAtomicSilent(filePath(), { items: snapshots })
 }
 
 function broadcast(): void {

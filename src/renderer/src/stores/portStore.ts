@@ -1,8 +1,12 @@
 import { create } from 'zustand'
 import Fuse from 'fuse.js'
-import type { PortInfo, ProcessDetails, ActionHistoryItem } from '../../../shared/types'
+import type { PortInfo, PortView, ProcessDetails, ActionHistoryItem } from '../../../shared/types'
 import { useSettingsStore } from './settingsStore'
 import { useUIStore } from './uiStore'
+import {
+  recordOccupancy,
+  type OccupancyMap
+} from '../lib/portOccupancy'
 
 interface PortState {
   ports: PortInfo[]
@@ -18,12 +22,17 @@ interface PortState {
   isLoading: boolean
   profileFilter: number[]
   groupByProject: boolean
+  occupancy: OccupancyMap
+  waitingPort: number | null
+  waitPort: (port: number | null) => void
+  portView: PortView
 
   setPorts: (ports: PortInfo[]) => void
   setProfileFilter: (ports: number[]) => void
   setSearchQuery: (query: string) => void
   setSortBy: (key: keyof PortInfo) => void
   setGroupByProject: (value: boolean) => void
+  setPortView: (view: PortView) => void
   selectPort: (pid: number) => void
   togglePortSelection: (pid: number) => void
   selectAll: () => void
@@ -68,7 +77,9 @@ function filterPorts(
       'user',
       { name: 'pid', getFn: (p) => p.pid.toString() },
       'projectName',
-      'tags'
+      'tags',
+      'peerAddress',
+      { name: 'peerPort', getFn: (p) => (p.peerPort ? String(p.peerPort) : '') }
     ],
     threshold: 0.35
   })
@@ -82,6 +93,31 @@ function applyProfileFilter(
 ): PortInfo[] {
   if (profileFilter.length === 0) return ports
   return ports.filter((p) => profileFilter.includes(p.port))
+}
+
+function applyHideSystem(ports: PortInfo[]): PortInfo[] {
+  if (!useSettingsStore.getState().hideSystemProcesses) return ports
+  return ports.filter((p) => !p.isSystem)
+}
+
+function applyPortView(ports: PortInfo[], view: PortView): PortInfo[] {
+  if (view === 'connections') {
+    return ports.filter((p) => p.role === 'connection')
+  }
+  return ports.filter((p) => p.role !== 'connection')
+}
+
+function pipeline(
+  ports: PortInfo[],
+  query: string,
+  tags: Record<number, string[]>,
+  profileFilter: number[],
+  portView: PortView
+): PortInfo[] {
+  let filtered = filterPorts(ports, query, tags)
+  filtered = applyProfileFilter(filtered, profileFilter)
+  filtered = applyHideSystem(filtered)
+  return applyPortView(filtered, portView)
 }
 
 function sortPortsWithImportance(
@@ -121,7 +157,7 @@ function portsSignature(ports: PortInfo[]): string {
   return ports
     .map(
       (p) =>
-        `${p.pid}:${p.port}:${p.command}:${p.cpu}:${p.memory}:${p.memoryRSS}:${p.projectPath}`
+        `${p.pid}:${p.port}:${p.command}:${p.cpu}:${p.memory}:${p.memoryRSS}:${p.projectPath}:${p.role}:${p.peerAddress}:${p.peerPort}:${p.connectionCount}`
     )
     .join('|')
 }
@@ -153,38 +189,88 @@ export const usePortStore = create<PortState>((set, get) => ({
   isLoading: false,
   profileFilter: [],
   groupByProject: false,
+  occupancy: {},
+  waitingPort: null,
+  waitPort: (port) => {
+    if (port == null) {
+      set({ waitingPort: null })
+      return
+    }
+    const up = get().ports.some(
+      (p) => p.role !== 'connection' && p.port === port
+    )
+    if (up) {
+      set({ waitingPort: null })
+      const settings = useSettingsStore.getState()
+      useUIStore.getState().addToast({
+        type: 'success',
+        title: `:${port} is already up`,
+        message: settings.waitOpenBrowser ? 'Opening in the browser' : undefined
+      })
+      if (settings.waitOpenBrowser) void get().openInBrowser(port)
+      return
+    }
+    set({ waitingPort: port })
+    useUIStore.getState().addToast({
+      type: 'info',
+      title: `Waiting for :${port}`,
+      message: 'A toast fires when that port starts listening'
+    })
+  },
+  portView: 'listen',
 
   setPorts: (ports) => {
+    const occupancy = recordOccupancy(
+      get().occupancy,
+      ports.filter((p) => p.role !== 'connection')
+    )
     const prev = get().ports
     if (
       prev.length === ports.length &&
       portsSignature(prev) === portsSignature(ports)
     ) {
+      set({ occupancy })
       return
     }
-    const { searchQuery, sortBy, sortDirection, tags, profileFilter } = get()
-    let filtered = filterPorts(ports, searchQuery, tags)
-    filtered = applyProfileFilter(filtered, profileFilter)
+    const { searchQuery, sortBy, sortDirection, tags, profileFilter, portView } = get()
+    const filtered = pipeline(ports, searchQuery, tags, profileFilter, portView)
     set({
       ports,
+      occupancy,
+      filteredPorts: applySorted(filtered, sortBy, sortDirection)
+    })
+    const waiting = get().waitingPort
+    if (waiting != null) {
+      const up = ports.some(
+        (p) => p.role !== 'connection' && p.port === waiting
+      )
+      if (up) {
+        set({ waitingPort: null })
+        const settings = useSettingsStore.getState()
+        useUIStore.getState().addToast({
+          type: 'success',
+          title: `:${waiting} is up`,
+          message: settings.waitOpenBrowser
+            ? 'Opening in the browser'
+            : 'Port is listening'
+        })
+        if (settings.waitOpenBrowser) void get().openInBrowser(waiting)
+      }
+    }
+  },
+
+  setProfileFilter: (portNumbers) => {
+    const { ports, searchQuery, sortBy, sortDirection, tags, portView } = get()
+    const filtered = pipeline(ports, searchQuery, tags, portNumbers, portView)
+    set({
+      profileFilter: portNumbers,
       filteredPorts: applySorted(filtered, sortBy, sortDirection)
     })
   },
 
-  setProfileFilter: (portNumbers) => {
-    const { ports, searchQuery, sortBy, sortDirection, tags } = get()
-    set({ profileFilter: portNumbers })
-    let filtered = filterPorts(ports, searchQuery, tags)
-    if (portNumbers.length > 0) {
-      filtered = filtered.filter((p) => portNumbers.includes(p.port))
-    }
-    set({ filteredPorts: applySorted(filtered, sortBy, sortDirection) })
-  },
-
   setSearchQuery: (query) => {
-    const { ports, sortBy, sortDirection, tags, profileFilter } = get()
-    let filtered = filterPorts(ports, query, tags)
-    filtered = applyProfileFilter(filtered, profileFilter)
+    const { ports, sortBy, sortDirection, tags, profileFilter, portView } = get()
+    const filtered = pipeline(ports, query, tags, profileFilter, portView)
     set({
       searchQuery: query,
       filteredPorts: applySorted(filtered, sortBy, sortDirection),
@@ -203,6 +289,17 @@ export const usePortStore = create<PortState>((set, get) => ({
   },
 
   setGroupByProject: (value) => set({ groupByProject: value }),
+
+  setPortView: (view) => {
+    const { ports, searchQuery, sortBy, sortDirection, tags, profileFilter } = get()
+    const filtered = pipeline(ports, searchQuery, tags, profileFilter, view)
+    set({
+      portView: view,
+      filteredPorts: applySorted(filtered, sortBy, sortDirection),
+      selectedIndex: filtered.length > 0 ? 0 : -1,
+      selectedPids: new Set()
+    })
+  },
 
   selectPort: (pid) => {
     const { filteredPorts } = get()
@@ -328,11 +425,10 @@ export const usePortStore = create<PortState>((set, get) => ({
   },
 
   addTag: (port, tag) => {
-    const { tags, ports, searchQuery, sortBy, sortDirection, profileFilter } = get()
+    const { tags, ports, searchQuery, sortBy, sortDirection, profileFilter, portView } = get()
     const portTags = [...(tags[port] || []), tag]
     const newTags = { ...tags, [port]: [...new Set(portTags)] }
-    let filtered = filterPorts(ports, searchQuery, newTags)
-    filtered = applyProfileFilter(filtered, profileFilter)
+    const filtered = pipeline(ports, searchQuery, newTags, profileFilter, portView)
     set({
       tags: newTags,
       filteredPorts: applySorted(filtered, sortBy, sortDirection)
@@ -340,13 +436,12 @@ export const usePortStore = create<PortState>((set, get) => ({
   },
 
   removeTag: (port, tag) => {
-    const { tags, ports, searchQuery, sortBy, sortDirection, profileFilter } = get()
+    const { tags, ports, searchQuery, sortBy, sortDirection, profileFilter, portView } = get()
     const newTags = {
       ...tags,
       [port]: (tags[port] || []).filter((t) => t !== tag)
     }
-    let filtered = filterPorts(ports, searchQuery, newTags)
-    filtered = applyProfileFilter(filtered, profileFilter)
+    const filtered = pipeline(ports, searchQuery, newTags, profileFilter, portView)
     set({
       tags: newTags,
       filteredPorts: applySorted(filtered, sortBy, sortDirection)
@@ -366,10 +461,9 @@ export const usePortStore = create<PortState>((set, get) => ({
   clearHistory: () => set({ history: [] }),
 
   reapplyFiltersAndSort: () => {
-    const { ports, searchQuery, sortBy, sortDirection, tags, profileFilter } =
+    const { ports, searchQuery, sortBy, sortDirection, tags, profileFilter, portView } =
       get()
-    let filtered = filterPorts(ports, searchQuery, tags)
-    filtered = applyProfileFilter(filtered, profileFilter)
+    const filtered = pipeline(ports, searchQuery, tags, profileFilter, portView)
     set({ filteredPorts: applySorted(filtered, sortBy, sortDirection) })
   }
 }))

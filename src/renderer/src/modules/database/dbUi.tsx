@@ -1,5 +1,5 @@
 import { clsx } from 'clsx'
-import { useState, type ReactNode } from 'react'
+import { useEffect, useState, type ReactNode } from 'react'
 import type { DbConnectionPublic } from '../../../../shared/types'
 
 export const ENGINE_LABEL: Record<DbConnectionPublic['engine'], string> = {
@@ -105,6 +105,31 @@ export function EngineBadge({
   )
 }
 
+export function TtlCountdown({ ttl }: { ttl: number }) {
+  const [left, setLeft] = useState(ttl)
+
+  useEffect(() => {
+    setLeft(ttl)
+    if (ttl < 0) return
+    const id = window.setInterval(() => {
+      setLeft((n) => (n <= 0 ? 0 : n - 1))
+    }, 1000)
+    return () => window.clearInterval(id)
+  }, [ttl])
+
+  if (ttl < 0) return <span className="text-text-muted">no expiry</span>
+  if (left <= 0) return <span className="text-warning">expired</span>
+  const h = Math.floor(left / 3600)
+  const m = Math.floor((left % 3600) / 60)
+  const s = left % 60
+  const label = h > 0 ? `${h}h ${m}m` : m > 0 ? `${m}m ${s}s` : `${s}s`
+  return (
+    <span className="tabular-nums text-text-secondary" title={`${left}s`}>
+      {label}
+    </span>
+  )
+}
+
 export function ResultGrid({
   columns,
   rows,
@@ -205,6 +230,9 @@ export function ResultGrid({
                       />
                     ) : cell == null ? (
                       <span className="italic text-text-muted">NULL</span>
+                    ) : columns[j]?.toLowerCase() === 'ttl' &&
+                      typeof cell === 'number' ? (
+                      <TtlCountdown ttl={cell} />
                     ) : (
                       String(cell)
                     )}

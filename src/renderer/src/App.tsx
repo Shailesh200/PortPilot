@@ -1,4 +1,5 @@
 import { useEffect, useCallback, useRef, lazy, Suspense } from 'react'
+import { applyActiveProfileFilter } from './lib/applyProfile'
 import { usePortStore } from './stores/portStore'
 import { useUIStore } from './stores/uiStore'
 import { useSettingsStore } from './stores/settingsStore'
@@ -11,6 +12,11 @@ import { PortsModule } from './modules/ports/PortsModule'
 
 const Settings = lazy(() =>
   import('./components/Settings').then((m) => ({ default: m.Settings }))
+)
+const ProfileCreatorDialog = lazy(() =>
+  import('./components/Settings').then((m) => ({
+    default: m.ProfileCreatorDialog
+  }))
 )
 const TextModule = lazy(() =>
   import('./modules/text/TextModule').then((m) => ({ default: m.TextModule }))
@@ -37,18 +43,6 @@ function ModuleFallback() {
   )
 }
 
-function applyActiveProfileFilter(): void {
-  const { activeProfileId, profiles } = useSettingsStore.getState()
-  const pr =
-    activeProfileId && profiles.find((p) => p.id === activeProfileId)
-  if (pr) {
-    usePortStore.getState().setProfileFilter(pr.favoritePorts)
-  } else {
-    usePortStore.getState().setProfileFilter([])
-  }
-  usePortStore.getState().reapplyFiltersAndSort()
-}
-
 export default function App() {
   const setPorts = usePortStore((s) => s.setPorts)
   const nav = useUIStore((s) => s.nav)
@@ -63,6 +57,8 @@ export default function App() {
   const notifyCrash = useSettingsStore((s) => s.notifyCrash)
   const autoOpenBrowser = useSettingsStore((s) => s.autoOpenBrowser)
   const autoFocusTerminal = useSettingsStore((s) => s.autoFocusTerminal)
+  const hideSystemProcesses = useSettingsStore((s) => s.hideSystemProcesses)
+  const autoUpdate = useSettingsStore((s) => s.autoUpdate)
   const confirmDialog = useUIStore((s) => s.confirmDialog)
   const hideConfirm = useUIStore((s) => s.hideConfirm)
   const addToast = useUIStore((s) => s.addToast)
@@ -131,7 +127,6 @@ export default function App() {
   useEffect(() => {
     return window.api.onOpenProfileCreator(() => {
       useSettingsStore.getState().requestOpenProfileCreator()
-      useUIStore.getState().setNav({ module: 'settings', screen: 'profiles' })
     })
   }, [])
 
@@ -170,9 +165,10 @@ export default function App() {
     void window.api.updateSafetySettings({
       protectSystemPorts,
       confirmDestructive,
-      autoFocusTerminal
+      autoFocusTerminal,
+      hideSystemProcesses
     })
-  }, [protectSystemPorts, confirmDestructive, autoFocusTerminal])
+  }, [protectSystemPorts, confirmDestructive, autoFocusTerminal, hideSystemProcesses])
 
   // Port start/stop/crash alerts run in main (so they work while hidden).
   useEffect(() => {
@@ -182,6 +178,10 @@ export default function App() {
       autoOpenBrowser
     })
   }, [notifyPortChange, notifyCrash, autoOpenBrowser])
+
+  useEffect(() => {
+    void window.api.updateAutoUpdate(autoUpdate)
+  }, [autoUpdate])
 
   useEffect(() => {
     return window.api.onAppToast((toast) => {
@@ -198,31 +198,15 @@ export default function App() {
       if (info.status === 'available') {
         addToast({
           type: 'info',
-          title: 'Update available',
-          message: `PortPilot ${info.version} is downloading…`
+          title: 'New version available',
+          message: `PortPilot ${info.version} is ready to download from Settings.`
         })
       } else if (info.status === 'downloaded') {
         addToast({
           type: 'success',
-          title: `Update ${info.version} ready`,
-          message: 'Click to restart and install',
+          title: `Version ${info.version} is ready`,
+          message: 'Restart PortPilot to finish updating.',
           duration: 0
-        })
-        // Surface a confirm so the user can install now.
-        useUIStore.getState().showConfirm({
-          title: 'Install Update',
-          message: `PortPilot ${info.version} is ready. Restart now to install?`,
-          variant: 'warning',
-          confirmLabel: 'Restart & Install',
-          onConfirm: () => {
-            void window.api.quitAndInstall()
-          }
-        })
-      } else if (info.status === 'error') {
-        addToast({
-          type: 'error',
-          title: 'Update failed',
-          message: info.message || 'Could not download the update'
         })
       }
     })
@@ -322,6 +306,9 @@ export default function App() {
         </Suspense>
       )}
       <ToastContainer />
+      <Suspense fallback={null}>
+        <ProfileCreatorDialog />
+      </Suspense>
       {confirmDialog && (
         <ConfirmDialog
           open={confirmDialog.open}

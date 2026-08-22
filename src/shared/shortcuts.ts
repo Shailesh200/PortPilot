@@ -140,11 +140,3 @@ export function resolveAppShortcuts(globalShortcut: string): AppShortcut[] {
     s.fromGlobalShortcut ? { ...s, keys: globalKeys } : s
   )
 }
-
-/** Markdown rows for README (pipe table body, no header). */
-export function shortcutsMarkdownRows(globalShortcut: string): string[] {
-  return resolveAppShortcuts(globalShortcut).map((s) => {
-    const keys = s.keys.replace(/ · /g, ' / ')
-    return `| \`${keys}\` | ${s.label} |`
-  })
-}

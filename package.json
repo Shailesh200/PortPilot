@@ -58,7 +58,7 @@
       "provisioningProfile": "build/embedded.provisionprofile",
       "identity": "Shailesh Jha (ARDSWV5GD2)",
       "bundleShortVersion": "1.0.23",
-      "bundleVersion": "4",
+      "bundleVersion": "5",
       "extendInfo": {
         "ElectronTeamID": "ARDSWV5GD2",
         "ITSAppUsesNonExemptEncryption": false,

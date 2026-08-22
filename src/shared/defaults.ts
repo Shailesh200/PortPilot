@@ -16,9 +16,15 @@ export const DEFAULT_SETTINGS: AppSettings = {
   confirmDestructive: true,
   highlightCritical: true,
   protectSystemPorts: true,
+  hideSystemProcesses: true,
   cpuThreshold: 80,
   memoryThreshold: 80,
   notifyPortChange: true,
   notifyHighCpu: true,
-  notifyCrash: true
+  notifyCrash: true,
+  pinnedTextTools: [],
+  regexLineByLine: true,
+  jsPlaygroundAutoRun: true,
+  waitOpenBrowser: true,
+  autoUpdate: true
 }

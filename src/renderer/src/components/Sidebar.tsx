@@ -22,7 +22,6 @@ export function Sidebar() {
   const [expanded, setExpanded] = useState(false)
   const nav = useUIStore((s) => s.nav)
   const openModule = useUIStore((s) => s.openModule)
-  const setNav = useUIStore((s) => s.setNav)
   const profiles = useSettingsStore((s) => s.profiles)
   const activeProfileId = useSettingsStore((s) => s.activeProfileId)
   const setActiveProfile = useSettingsStore((s) => s.setActiveProfile)
@@ -35,7 +34,6 @@ export function Sidebar() {
 
   const openAddProfile = () => {
     requestOpenProfileCreator()
-    setNav({ module: 'settings', screen: 'profiles' })
   }
 
   return (

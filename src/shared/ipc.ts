@@ -20,7 +20,9 @@ import type {
   TextDiffSnapshotInput,
   TextSnapshot,
   TextSnapshotTool,
-  UpdateInfo
+  UpdateInfo,
+  AlertSettings,
+  SafetySettings
 } from './types'
 
 export const IpcChannel = {
@@ -40,11 +42,15 @@ export const IpcChannel = {
   saveProfiles: 'save-profiles',
   getAppVersion: 'get-app-version',
   eraseAllAppData: 'erase-all-app-data',
+  getUpdateStatus: 'get-update-status',
+  checkForUpdates: 'check-for-updates',
+  downloadUpdate: 'download-update',
   quitAndInstall: 'quit-and-install',
+  updateAutoUpdate: 'update-auto-update',
+  readHostsFile: 'read-hosts-file',
 
   windowIsFullScreen: 'window-is-full-screen',
   windowSetFullScreen: 'window-set-full-screen',
-  windowToggleFullScreen: 'window-toggle-full-screen',
 
   clipboardGetHistory: 'clipboard-get-history',
   clipboardSetCapture: 'clipboard-set-capture',
@@ -166,34 +172,34 @@ export type InvokeMap = {
   [IpcChannel.updatePollInterval]: { args: [intervalMs: number]; result: void }
   [IpcChannel.updateGlobalShortcut]: { args: [shortcut: string]; result: boolean }
   [IpcChannel.updateSafetySettings]: {
-    args: [
-      settings: {
-        protectSystemPorts: boolean
-        confirmDestructive: boolean
-        autoFocusTerminal: boolean
-      }
-    ]
+    args: [settings: SafetySettings]
     result: void
   }
   [IpcChannel.updateAlertSettings]: {
-    args: [
-      settings: {
-        notifyPortChange: boolean
-        notifyCrash: boolean
-        autoOpenBrowser: boolean
-      }
-    ]
+    args: [settings: AlertSettings]
     result: void
   }
   [IpcChannel.loadProfiles]: { args: []; result: ProfilesPersistState }
   [IpcChannel.saveProfiles]: { args: [state: ProfilesPersistState]; result: boolean }
   [IpcChannel.getAppVersion]: { args: []; result: string }
+  [IpcChannel.readHostsFile]: {
+    args: []
+    result: {
+      ok: boolean
+      path: string
+      lines: { raw: string; ip?: string; names?: string[]; comment?: boolean }[]
+      error?: string
+    }
+  }
   [IpcChannel.eraseAllAppData]: { args: []; result: void }
+  [IpcChannel.getUpdateStatus]: { args: []; result: UpdateInfo }
+  [IpcChannel.checkForUpdates]: { args: []; result: UpdateInfo }
+  [IpcChannel.downloadUpdate]: { args: []; result: UpdateInfo }
   [IpcChannel.quitAndInstall]: { args: []; result: void }
+  [IpcChannel.updateAutoUpdate]: { args: [enabled: boolean]; result: void }
 
   [IpcChannel.windowIsFullScreen]: { args: []; result: boolean }
   [IpcChannel.windowSetFullScreen]: { args: [flag: boolean]; result: boolean }
-  [IpcChannel.windowToggleFullScreen]: { args: []; result: boolean }
 
   [IpcChannel.clipboardGetHistory]: { args: []; result: ClipboardItem[] }
   [IpcChannel.clipboardSetCapture]: { args: [enabled: boolean]; result: boolean }
@@ -391,3 +397,89 @@ export type EventMap = {
 
 export type InvokeChannel = keyof InvokeMap
 export type EventChannel = keyof EventMap
+
+export type InvokeFn<C extends InvokeChannel> = (
+  ...args: InvokeMap[C]['args']
+) => Promise<InvokeMap[C]['result']>
+
+export type EventSubscribeFn<E extends EventChannel> = (
+  callback: EventMap[E] extends undefined
+    ? () => void
+    : (payload: EventMap[E]) => void
+) => () => void
+
+/** Renderer API. Method args/results are InvokeMap / EventMap — not a second copy. */
+export type IpcApi = {
+  getPorts: InvokeFn<typeof IpcChannel.getPorts>
+  getProcessDetails: InvokeFn<typeof IpcChannel.getProcessDetails>
+  killProcess: InvokeFn<typeof IpcChannel.killProcess>
+  killProcesses: InvokeFn<typeof IpcChannel.killProcesses>
+  openInBrowser: InvokeFn<typeof IpcChannel.openInBrowser>
+  openInTerminal: InvokeFn<typeof IpcChannel.openInTerminal>
+  openInVSCode: InvokeFn<typeof IpcChannel.openInVscode>
+  restartProcess: InvokeFn<typeof IpcChannel.restartProcess>
+  updatePollInterval: InvokeFn<typeof IpcChannel.updatePollInterval>
+  updateGlobalShortcut: InvokeFn<typeof IpcChannel.updateGlobalShortcut>
+  updateSafetySettings: InvokeFn<typeof IpcChannel.updateSafetySettings>
+  updateAlertSettings: InvokeFn<typeof IpcChannel.updateAlertSettings>
+  loadProfiles: InvokeFn<typeof IpcChannel.loadProfiles>
+  saveProfiles: InvokeFn<typeof IpcChannel.saveProfiles>
+  getAppVersion: InvokeFn<typeof IpcChannel.getAppVersion>
+  readHostsFile: InvokeFn<typeof IpcChannel.readHostsFile>
+  eraseAllAppData: InvokeFn<typeof IpcChannel.eraseAllAppData>
+  getUpdateStatus: InvokeFn<typeof IpcChannel.getUpdateStatus>
+  checkForUpdates: InvokeFn<typeof IpcChannel.checkForUpdates>
+  downloadUpdate: InvokeFn<typeof IpcChannel.downloadUpdate>
+  quitAndInstall: InvokeFn<typeof IpcChannel.quitAndInstall>
+  updateAutoUpdate: InvokeFn<typeof IpcChannel.updateAutoUpdate>
+  windowIsFullScreen: InvokeFn<typeof IpcChannel.windowIsFullScreen>
+  windowSetFullScreen: InvokeFn<typeof IpcChannel.windowSetFullScreen>
+  clipboardGetHistory: InvokeFn<typeof IpcChannel.clipboardGetHistory>
+  clipboardSetCapture: InvokeFn<typeof IpcChannel.clipboardSetCapture>
+  clipboardIsCaptureEnabled: InvokeFn<typeof IpcChannel.clipboardIsCaptureEnabled>
+  clipboardPin: InvokeFn<typeof IpcChannel.clipboardPin>
+  clipboardDelete: InvokeFn<typeof IpcChannel.clipboardDelete>
+  clipboardClear: InvokeFn<typeof IpcChannel.clipboardClear>
+  clipboardWrite: InvokeFn<typeof IpcChannel.clipboardWrite>
+  dbListConnections: InvokeFn<typeof IpcChannel.dbListConnections>
+  dbListLive: InvokeFn<typeof IpcChannel.dbListLive>
+  dbSaveConnection: InvokeFn<typeof IpcChannel.dbSaveConnection>
+  dbDeleteConnection: InvokeFn<typeof IpcChannel.dbDeleteConnection>
+  dbConnect: InvokeFn<typeof IpcChannel.dbConnect>
+  dbDisconnect: InvokeFn<typeof IpcChannel.dbDisconnect>
+  dbQuery: InvokeFn<typeof IpcChannel.dbQuery>
+  dbTables: InvokeFn<typeof IpcChannel.dbTables>
+  dbBrowseTable: InvokeFn<typeof IpcChannel.dbBrowseTable>
+  dbTableSchema: InvokeFn<typeof IpcChannel.dbTableSchema>
+  dbAnalyzeSql: InvokeFn<typeof IpcChannel.dbAnalyzeSql>
+  dbExplain: InvokeFn<typeof IpcChannel.dbExplain>
+  dbSavedQueries: InvokeFn<typeof IpcChannel.dbSavedQueries>
+  dbSaveQuery: InvokeFn<typeof IpcChannel.dbSaveQuery>
+  dbDeleteSavedQuery: InvokeFn<typeof IpcChannel.dbDeleteSavedQuery>
+  dbTableDdl: InvokeFn<typeof IpcChannel.dbTableDdl>
+  dbUpdateCell: InvokeFn<typeof IpcChannel.dbUpdateCell>
+  dbInsertRow: InvokeFn<typeof IpcChannel.dbInsertRow>
+  dbImportCsv: InvokeFn<typeof IpcChannel.dbImportCsv>
+  dbRedisKeys: InvokeFn<typeof IpcChannel.dbRedisKeys>
+  dbRedisKey: InvokeFn<typeof IpcChannel.dbRedisKey>
+  dbHistory: InvokeFn<typeof IpcChannel.dbHistory>
+  dbPickSqliteFile: InvokeFn<typeof IpcChannel.dbPickSqliteFile>
+  dbPickSshKey: InvokeFn<typeof IpcChannel.dbPickSshKey>
+  dbGetAccessInfo: InvokeFn<typeof IpcChannel.dbAccessInfo>
+  textSnapshotsList: InvokeFn<typeof IpcChannel.textSnapshotsList>
+  textSnapshotsSave: InvokeFn<typeof IpcChannel.textSnapshotsSave>
+  textSnapshotsUpdateLabel: InvokeFn<typeof IpcChannel.textSnapshotsUpdateLabel>
+  textSnapshotsDelete: InvokeFn<typeof IpcChannel.textSnapshotsDelete>
+  saveTextFile: InvokeFn<typeof IpcChannel.saveTextFile>
+  saveHtmlAsPdf: InvokeFn<typeof IpcChannel.saveHtmlAsPdf>
+  onPortsUpdate: EventSubscribeFn<typeof IpcEvent.portsUpdated>
+  onFocusSearch: EventSubscribeFn<typeof IpcEvent.focusSearch>
+  onProfilesChanged: EventSubscribeFn<typeof IpcEvent.profilesChanged>
+  onOpenProfileCreator: EventSubscribeFn<typeof IpcEvent.openProfileCreator>
+  onNavigateTo: EventSubscribeFn<typeof IpcEvent.navigateTo>
+  onUpdateStatus: EventSubscribeFn<typeof IpcEvent.updateStatus>
+  onAppToast: EventSubscribeFn<typeof IpcEvent.appToast>
+  onClipboardUpdate: EventSubscribeFn<typeof IpcEvent.clipboardUpdated>
+  onTextSnapshotsUpdate: EventSubscribeFn<typeof IpcEvent.textSnapshotsUpdated>
+  onWindowFullScreenChange: EventSubscribeFn<typeof IpcEvent.windowFullScreenChanged>
+}

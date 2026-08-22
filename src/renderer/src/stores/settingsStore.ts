@@ -1,6 +1,6 @@
 import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
-import type { AppSettings, Profile } from '../../../shared/types'
+import type { AppSettings, Profile, TextToolId } from '../../../shared/types'
 import { DEFAULT_PROFILES, DEFAULT_SETTINGS } from '../../../shared/defaults'
 
 export { DEFAULT_PROFILES }
@@ -28,6 +28,7 @@ interface SettingsState extends AppSettings {
   ) => void
   requestOpenProfileCreator: () => void
   clearOpenProfileCreator: () => void
+  togglePinnedTextTool: (id: TextToolId) => void
   resetSettings: () => void
 }
 
@@ -82,6 +83,14 @@ export const useSettingsStore = create<SettingsState>()(
 
       requestOpenProfileCreator: () => set({ openProfileCreator: true }),
       clearOpenProfileCreator: () => set({ openProfileCreator: false }),
+      togglePinnedTextTool: (id: TextToolId) =>
+        set((s) => {
+          const pinned = s.pinnedTextTools ?? []
+          const next = pinned.includes(id)
+            ? pinned.filter((x) => x !== id)
+            : [id, ...pinned]
+          return { pinnedTextTools: next }
+        }),
 
       resetSettings: () => {
         set({
@@ -104,11 +113,17 @@ export const useSettingsStore = create<SettingsState>()(
         confirmDestructive: s.confirmDestructive,
         highlightCritical: s.highlightCritical,
         protectSystemPorts: s.protectSystemPorts,
+        hideSystemProcesses: s.hideSystemProcesses,
         cpuThreshold: s.cpuThreshold,
         memoryThreshold: s.memoryThreshold,
         notifyPortChange: s.notifyPortChange,
         notifyHighCpu: s.notifyHighCpu,
-        notifyCrash: s.notifyCrash
+        notifyCrash: s.notifyCrash,
+        pinnedTextTools: s.pinnedTextTools,
+        regexLineByLine: s.regexLineByLine,
+        jsPlaygroundAutoRun: s.jsPlaygroundAutoRun,
+        waitOpenBrowser: s.waitOpenBrowser,
+        autoUpdate: s.autoUpdate
       })
     }
   )

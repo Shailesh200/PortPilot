@@ -5,6 +5,7 @@ import {
   useState,
   type ReactNode
 } from 'react'
+import { Switch } from '../../../components/Switch'
 import { clsx } from 'clsx'
 import { ChevronRight } from 'lucide-react'
 
@@ -241,24 +242,10 @@ export function ToolToggle({
   onChange: (v: boolean) => void
 }) {
   return (
-    <button
-      type="button"
-      onClick={() => onChange(!checked)}
-      className="inline-flex items-center gap-2 cursor-pointer"
-    >
-      <span
-        className={clsx(
-          'inline-flex w-9 h-5 rounded-full relative flex-shrink-0 transition-colors',
-          checked ? 'bg-accent' : 'bg-bg-hover'
-        )}
-      >
-        <span
-          className="absolute top-0.5 w-4 h-4 rounded-full bg-white transition-[left]"
-          style={{ left: checked ? 18 : 2 }}
-        />
-      </span>
+    <div className="inline-flex items-center gap-2">
+      <Switch checked={checked} onChange={onChange} />
       <span className="text-[13px] text-text-secondary">{label}</span>
-    </button>
+    </div>
   )
 }
 

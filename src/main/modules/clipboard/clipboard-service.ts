@@ -2,19 +2,14 @@ import { BrowserWindow } from 'electron'
 import { sendEvent } from '../../ipc-handle'
 import { IpcEvent } from '../../../shared/ipc'
 import {
-  getUserDataPath,
   userDataFile,
   readClipboardText,
-  writeClipboardText as writeOsClipboard
+  writeClipboardText as writeOsClipboard,
+  writeJsonAtomicSilent
 } from '../../os'
-import {
-  existsSync,
-  readFileSync,
-  writeFileSync,
-  renameSync,
-  mkdirSync
-} from 'fs'
+import { existsSync, readFileSync } from 'fs'
 import type { ClipboardItem, ClipboardKind } from '../../../shared/types'
+import { classifyClipboardKind } from '../../../shared/smart-paste'
 
 const MAX_ITEMS = 200
 let history: ClipboardItem[] = []
@@ -28,36 +23,11 @@ function filePath(): string {
 }
 
 function classify(text: string): ClipboardKind {
-  const t = text.trim()
-  if (/^https?:\/\/\S+$/i.test(t)) return 'url'
-  if (/^#[0-9a-f]{3,8}$/i.test(t) || /^rgba?\([^)]+\)$/i.test(t)) return 'color'
-  if (/^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/.test(t)) return 'jwt'
-  if (
-    (t.startsWith('{') && t.endsWith('}')) ||
-    (t.startsWith('[') && t.endsWith(']'))
-  ) {
-    try {
-      JSON.parse(t)
-      return 'json'
-    } catch {
-      /* ignore invalid JSON */
-    }
-  }
-  if (/^(import |export |const |function |class |def )/m.test(t)) return 'code'
-  return 'text'
+  return classifyClipboardKind(text)
 }
 
 function persist(): void {
-  try {
-    const dir = getUserDataPath()
-    if (!existsSync(dir)) mkdirSync(dir, { recursive: true })
-    const target = filePath()
-    const tmp = `${target}.tmp`
-    writeFileSync(tmp, JSON.stringify({ items: history }, null, 2), 'utf-8')
-    renameSync(tmp, target)
-  } catch {
-    /* ignore */
-  }
+  writeJsonAtomicSilent(filePath(), { items: history })
 }
 
 function broadcast(): void {

@@ -4,22 +4,15 @@ import {
   useMemo,
   useRef,
   useState,
-  type KeyboardEvent as ReactKeyboardEvent,
-  type MouseEvent as ReactMouseEvent,
   type ReactNode,
   type RefObject
 } from 'react'
-import {
-  ChevronDown,
-  ChevronUp,
-  ClipboardPaste,
-  Copy,
-  Search
-} from 'lucide-react'
+import { Copy } from 'lucide-react'
 import { clsx } from 'clsx'
-import { useHandoffStore } from '../../../stores/handoffStore'
 import { useTextToolSessionStore } from '../../../stores/textToolSessionStore'
+import { useHandoffPayload } from '../../../hooks/useHandoffPayload'
 import { WorkspaceToolbar } from '../../../shell/WorkspaceToolbar'
+import { SplitPane } from '../../../shell/SplitPane'
 import {
   ToolBadge,
   ToolButton,
@@ -29,7 +22,10 @@ import {
   ToolToggle,
   ToolToolbar
 } from './toolUi'
+import { ToolFindBar, ToolMonoTextarea, readClipboardText } from './toolChrome'
 import { countNodes, escapeRegExp, formatJson, parseJson, sortJsonKeys } from './jsonUtils'
+import { highlightJson, highlightMarkup } from '../../../lib/syntaxHighlight'
+import { prettyCss, prettyHtml, prettyJs, prettyLog } from '../../../lib/prettyPrint'
 import {
   ToolFullscreenShell,
   ToolWorkspaceExtras
@@ -38,6 +34,7 @@ import type { TextSnapshot } from '../../../../../shared/types'
 
 type ViewMode = 'tree' | 'raw'
 type IndentMode = '2' | '4' | '0'
+type FormatKind = 'json' | 'html' | 'css' | 'js' | 'log'
 
 const MIN_LEFT_PCT = 22
 const MAX_LEFT_PCT = 78
@@ -172,7 +169,8 @@ function JsonTree({
   pathHit,
   expandPaths,
   query,
-  activePath
+  activePath,
+  findTick
 }: {
   value: unknown
   name?: string
@@ -182,6 +180,7 @@ function JsonTree({
   expandPaths: Set<string>
   query: string
   activePath: string | null
+  findTick: number
 }) {
   const searching = query.trim().length > 0
   const shouldExpand =
@@ -205,7 +204,7 @@ function JsonTree({
     if (isActive && rowRef.current) {
       rowRef.current.scrollIntoView({ block: 'center', behavior: 'smooth' })
     }
-  }, [isActive])
+  }, [isActive, findTick])
 
   const rowClass = clsx(
     'flex items-center gap-1.5 py-px px-2 rounded font-mono text-[13px] leading-[1.75]',
@@ -295,6 +294,7 @@ function JsonTree({
                 expandPaths={expandPaths}
                 query={query}
                 activePath={activePath}
+                findTick={findTick}
               />
             )
           })}
@@ -307,11 +307,15 @@ function JsonTree({
 function RawFindView({
   formatted,
   query,
-  activeIndex
+  activeIndex,
+  findTick,
+  kind
 }: {
   formatted: string
   query: string
   activeIndex: number
+  findTick: number
+  kind: FormatKind
 }) {
   const preRef = useRef<HTMLPreElement>(null)
   const { nodes } = useMemo(
@@ -325,14 +329,18 @@ function RawFindView({
       `[data-find-match="${activeIndex}"]`
     )
     el?.scrollIntoView({ block: 'center', behavior: 'smooth' })
-  }, [query, activeIndex, formatted])
+  }, [query, activeIndex, formatted, findTick])
 
   return (
     <pre
       ref={preRef}
       className="h-full overflow-auto font-mono text-[13px] leading-6 whitespace-pre-wrap text-text-primary"
     >
-      {nodes}
+      {query.trim()
+        ? nodes
+        : kind === 'json'
+          ? highlightJson(formatted)
+          : highlightMarkup(formatted)}
     </pre>
   )
 }
@@ -355,32 +363,45 @@ export function JsonFormatter() {
   const [input, setInput] = useState(saved.input)
   const [indent, setIndent] = useState<IndentMode>(saved.indent)
   const [mode, setMode] = useState<ViewMode>(saved.mode)
+  const [kind, setKind] = useState<FormatKind>(saved.kind ?? 'json')
   const [sortKeys, setSortKeys] = useState(saved.sortKeys)
   const [findQuery, setFindQuery] = useState('')
   const [activeIndex, setActiveIndex] = useState(0)
+  const [findTick, setFindTick] = useState(0)
   const [leftPct, setLeftPct] = useState(saved.leftPct)
-  const splitRef = useRef<HTMLDivElement>(null)
-  const draggingRef = useRef(false)
   const findInputRef = useRef<HTMLInputElement>(null)
-  const take = useHandoffStore((s) => s.take)
+
+  useHandoffPayload(setInput)
 
   useEffect(() => {
-    const { payload } = take()
-    if (payload) setInput(payload)
-  }, [take])
-
-  useEffect(() => {
-    patchSession({ input, indent, mode, sortKeys, leftPct })
-  }, [input, indent, mode, sortKeys, leftPct, patchSession])
+    patchSession({ input, indent, mode, kind, sortKeys, leftPct })
+  }, [input, indent, mode, kind, sortKeys, leftPct, patchSession])
 
   const result: ParseResult = useMemo(() => {
     if (!input.trim()) return { empty: true }
+    const spaces = Number(indent)
+    if (kind !== 'json') {
+      const formatted =
+        kind === 'html'
+          ? prettyHtml(input, spaces || 2)
+          : kind === 'css'
+            ? prettyCss(input, spaces || 2)
+            : kind === 'js'
+              ? prettyJs(input, spaces || 2)
+              : prettyLog(input)
+      return {
+        empty: false,
+        ok: true as const,
+        formatted,
+        parsed: formatted,
+        nodes: formatted.split(/\n/).length
+      }
+    }
     const parsed = parseJson(input)
     if (!parsed.ok) {
       return { empty: false, ok: false as const, error: parsed.error }
     }
     const value = sortKeys ? sortJsonKeys(parsed.value) : parsed.value
-    const spaces = Number(indent)
     return {
       empty: false,
       ok: true as const,
@@ -388,7 +409,7 @@ export function JsonFormatter() {
       parsed: value,
       nodes: countNodes(value)
     }
-  }, [input, indent, sortKeys])
+  }, [input, indent, sortKeys, kind])
 
   const nodeMatches = useMemo(() => {
     if (result.empty || !result.ok) {
@@ -423,72 +444,26 @@ export function JsonFormatter() {
   // Reset to first match when query / mode / data changes
   useEffect(() => {
     setActiveIndex(0)
+    setFindTick((t) => t + 1)
   }, [findQuery, mode, resultStamp])
 
   const goNext = useCallback(() => {
     if (matchCount === 0) return
     setActiveIndex((i) => (i + 1) % matchCount)
+    setFindTick((t) => t + 1)
   }, [matchCount])
 
   const goPrev = useCallback(() => {
     if (matchCount === 0) return
     setActiveIndex((i) => (i - 1 + matchCount) % matchCount)
+    setFindTick((t) => t + 1)
   }, [matchCount])
-
-  const onFindKeyDown = (e: ReactKeyboardEvent<HTMLInputElement>) => {
-    if (e.key === 'Enter') {
-      e.preventDefault()
-      if (e.shiftKey) goPrev()
-      else goNext()
-    }
-  }
 
   const canCopy = !result.empty && result.ok
 
   const pasteFromClipboard = async () => {
-    try {
-      const text = await navigator.clipboard.readText()
-      if (text) setInput(text)
-    } catch {
-      /* permission denied */
-    }
-  }
-
-  const onSplitMove = useCallback((clientX: number) => {
-    const el = splitRef.current
-    if (!el) return
-    const rect = el.getBoundingClientRect()
-    if (rect.width <= 0) return
-    const pct = ((clientX - rect.left) / rect.width) * 100
-    setLeftPct(Math.min(MAX_LEFT_PCT, Math.max(MIN_LEFT_PCT, pct)))
-  }, [])
-
-  useEffect(() => {
-    const onMove = (e: MouseEvent) => {
-      if (!draggingRef.current) return
-      e.preventDefault()
-      onSplitMove(e.clientX)
-    }
-    const onUp = () => {
-      if (!draggingRef.current) return
-      draggingRef.current = false
-      document.body.style.cursor = ''
-      document.body.style.userSelect = ''
-    }
-    window.addEventListener('mousemove', onMove)
-    window.addEventListener('mouseup', onUp)
-    return () => {
-      window.removeEventListener('mousemove', onMove)
-      window.removeEventListener('mouseup', onUp)
-    }
-  }, [onSplitMove])
-
-  const startDrag = (e: ReactMouseEvent) => {
-    e.preventDefault()
-    draggingRef.current = true
-    document.body.style.cursor = 'col-resize'
-    document.body.style.userSelect = 'none'
-    onSplitMove(e.clientX)
+    const text = await readClipboardText()
+    if (text) setInput(text)
   }
 
   const findLabel =
@@ -513,11 +488,28 @@ export function JsonFormatter() {
       <WorkspaceToolbar>
         <ToolToolbar className="mb-0">
           <ToolSeg
-            options={['tree', 'raw'] as const}
-            value={mode}
-            onChange={setMode}
-            labels={{ tree: 'Tree', raw: 'Raw' }}
+            options={['json', 'html', 'css', 'js', 'log'] as const}
+            value={kind}
+            onChange={(k) => {
+              setKind(k)
+              if (k !== 'json') setMode('raw')
+            }}
+            labels={{
+              json: 'JSON',
+              html: 'HTML',
+              css: 'CSS',
+              js: 'JS',
+              log: 'Logs'
+            }}
           />
+          {kind === 'json' && (
+            <ToolSeg
+              options={['tree', 'raw'] as const}
+              value={mode}
+              onChange={setMode}
+              labels={{ tree: 'Tree', raw: 'Raw' }}
+            />
+          )}
           <ToolDivider />
           <ToolSeg
             options={['2', '4', '0'] as const}
@@ -526,50 +518,25 @@ export function JsonFormatter() {
             labels={{ '2': '2 spaces', '4': '4 spaces', '0': 'Minified' }}
           />
           <ToolDivider />
-          <ToolToggle
-            label="Sort keys"
-            checked={sortKeys}
-            onChange={setSortKeys}
-          />
+          {kind === 'json' && (
+            <ToolToggle
+              label="Sort keys"
+              checked={sortKeys}
+              onChange={setSortKeys}
+            />
+          )}
           <span className="ml-auto flex items-center gap-1.5">
-            <div className="relative flex items-center">
-              <Search className="absolute left-2.5 w-3.5 h-3.5 text-text-muted pointer-events-none" />
-              <input
-                ref={findInputRef}
-                type="search"
-                value={findQuery}
-                onChange={(e) => setFindQuery(e.target.value)}
-                onKeyDown={onFindKeyDown}
-                placeholder="Find…"
-                disabled={result.empty || !result.ok}
-                className="w-52 bg-bg-elevated border border-border-strong rounded-full pl-8 pr-14 py-1.5 text-[12.5px] text-text-primary placeholder:text-text-muted focus:outline-none focus:border-accent disabled:opacity-40"
-              />
-              {findLabel && (
-                <span className="absolute right-2 text-[10px] text-text-muted tabular-nums pointer-events-none">
-                  {findLabel}
-                </span>
-              )}
-            </div>
-            <button
-              type="button"
-              title="Previous (Shift+Enter)"
-              disabled={matchCount === 0}
-              onClick={goPrev}
-              className="p-1.5 rounded-full text-text-secondary hover:text-text-primary hover:bg-bg-elevated disabled:opacity-30"
-            >
-              <ChevronUp className="w-3.5 h-3.5" />
-            </button>
-            <button
-              type="button"
-              title="Next (Enter)"
-              disabled={matchCount === 0}
-              onClick={goNext}
-              className="p-1.5 rounded-full text-text-secondary hover:text-text-primary hover:bg-bg-elevated disabled:opacity-30"
-            >
-              <ChevronDown className="w-3.5 h-3.5" />
-            </button>
+            <ToolFindBar
+              value={findQuery}
+              onChange={setFindQuery}
+              disabled={result.empty || !result.ok}
+              label={findLabel}
+              onPrev={goPrev}
+              onNext={goNext}
+              matchCount={matchCount}
+              inputRef={findInputRef}
+            />
             <ToolButton variant="ghost" onClick={() => void pasteFromClipboard()}>
-              <ClipboardPaste className="w-3.5 h-3.5" />
               Paste
             </ToolButton>
             <ToolButton
@@ -601,32 +568,38 @@ export function JsonFormatter() {
         onLoad={loadSnapshot}
       />
 
-      <div
-        ref={splitRef}
-        className="flex-1 min-h-0 flex flex-col lg:flex-row gap-0"
+      <SplitPane
+        axis="x"
+        value={leftPct}
+        onChange={setLeftPct}
+        min={MIN_LEFT_PCT}
+        max={MAX_LEFT_PCT}
+        className="flex-1 min-h-0"
       >
-        <div
-          className="min-h-0 h-[45%] lg:h-full w-full flex flex-col flex-shrink-0 lg:w-[var(--split-left)]"
-          style={{ ['--split-left' as string]: `${leftPct}%` }}
-        >
-          <ToolPane
+        <ToolPane
             className="h-full min-h-0"
             title="Input"
             actions={
               result.empty ? null : result.ok ? (
-                <ToolBadge tone="ok">Valid JSON</ToolBadge>
+                <ToolBadge tone="ok">
+                  {kind === 'json' ? 'Valid JSON' : 'Formatted'}
+                </ToolBadge>
               ) : (
                 <ToolBadge tone="err">Invalid</ToolBadge>
               )
             }
             bodyClassName="p-0 h-full flex flex-col"
           >
-            <textarea
-              className="flex-1 w-full min-h-0 resize-none bg-transparent px-4 py-3 text-[13px] leading-6 font-mono text-text-primary placeholder:text-text-muted focus:outline-none"
+            <ToolMonoTextarea
               value={input}
               onChange={(e) => setInput(e.target.value)}
-              spellCheck={false}
-              placeholder="Paste or type JSON here…"
+              placeholder={
+                kind === 'json'
+                  ? 'Paste or type JSON here…'
+                  : kind === 'log'
+                    ? 'Paste logs here…'
+                    : `Paste or type ${kind.toUpperCase()} here…`
+              }
             />
             {!result.empty && !result.ok && (
               <div className="flex-shrink-0 border-t border-danger/25 bg-danger/10 px-4 py-2">
@@ -636,26 +609,9 @@ export function JsonFormatter() {
               </div>
             )}
           </ToolPane>
-        </div>
-
-        <div
-          role="separator"
-          aria-orientation="vertical"
-          aria-valuenow={Math.round(leftPct)}
-          aria-valuemin={MIN_LEFT_PCT}
-          aria-valuemax={MAX_LEFT_PCT}
-          title="Drag to resize"
-          onMouseDown={startDrag}
-          className="hidden lg:flex w-2 flex-shrink-0 cursor-col-resize items-stretch justify-center group relative mx-0.5"
-        >
-          <div className="w-px bg-border-strong group-hover:bg-accent group-active:bg-accent transition-colors my-1" />
-          <div className="absolute inset-y-0 -left-1 -right-1" />
-        </div>
-
-        <div className="min-h-0 h-full flex-1 flex flex-col min-w-0">
-          <ToolPane
+        <ToolPane
             className="h-full min-h-0"
-            title={mode === 'tree' ? 'Tree' : 'Raw'}
+            title={kind === 'json' && mode === 'tree' ? 'Tree' : 'Output'}
             actions={
               !result.empty && result.ok ? (
                 <span className="text-[11.5px] text-text-secondary">
@@ -672,10 +628,10 @@ export function JsonFormatter() {
           >
             {result.empty ? (
               <div className="h-full flex items-center justify-center text-[13px] text-text-muted">
-                Output appears here once you paste valid JSON
+                Output appears here once you paste something to format
               </div>
             ) : result.ok ? (
-              mode === 'raw' ? (
+              mode === 'raw' || kind !== 'json' ? (
                 <RawFindView
                   formatted={result.formatted}
                   query={findQuery}
@@ -684,6 +640,8 @@ export function JsonFormatter() {
                       ? -1
                       : ((activeIndex % matchCount) + matchCount) % matchCount
                   }
+                  findTick={findTick}
+                  kind={kind}
                 />
               ) : (
                 <div className="h-full overflow-auto">
@@ -695,17 +653,17 @@ export function JsonFormatter() {
                     expandPaths={nodeMatches.expandPaths}
                     query={findQuery}
                     activePath={activePath}
+                    findTick={findTick}
                   />
                 </div>
               )
             ) : (
               <div className="h-full flex items-center justify-center text-[13px] text-text-muted">
-                Fix the JSON in Input to preview output
+                Fix the input to preview output
               </div>
             )}
           </ToolPane>
-        </div>
-      </div>
+      </SplitPane>
     </ToolFullscreenShell>
   )
 }

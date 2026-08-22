@@ -1,12 +1,12 @@
 import { spawnSync } from 'child_process'
-import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'fs'
+import { existsSync, readFileSync } from 'fs'
 import { encryptSecret, decryptSecret } from './secure-store'
 import {
   getMacKeychainTrustPath,
-  getUserDataPath,
   userDataFile
 } from './paths'
 import { resolveResourcePath } from './resources'
+import { writeJsonAtomic } from './atomic-json'
 
 /**
  * Session RAM + native OS credential store (Keychain / Credential Manager /
@@ -46,11 +46,7 @@ function loadIndex(): SecretIndex {
 }
 
 function persistIndex(index: SecretIndex): void {
-  const dir = getUserDataPath()
-  if (!existsSync(dir)) mkdirSync(dir, { recursive: true })
-  const tmp = `${indexPath()}.tmp`
-  writeFileSync(tmp, JSON.stringify(index), 'utf-8')
-  renameSync(tmp, indexPath())
+  writeJsonAtomic(indexPath(), index, { pretty: false })
 }
 
 function markIndex(id: string, kind: SecretKind, present: boolean): void {
@@ -258,11 +254,7 @@ function readFileVault(): Record<string, string> {
 }
 
 function writeFileVault(data: Record<string, string>): void {
-  const dir = getUserDataPath()
-  if (!existsSync(dir)) mkdirSync(dir, { recursive: true })
-  const tmp = `${fileVaultPath()}.tmp`
-  writeFileSync(tmp, JSON.stringify(data), 'utf-8')
-  renameSync(tmp, fileVaultPath())
+  writeJsonAtomic(fileVaultPath(), data, { pretty: false })
 }
 
 function fileSet(account: string, secret: string): void {

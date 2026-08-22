@@ -24,20 +24,25 @@ import {
   RotateCw,
   Copy,
   Eye,
+  EyeOff,
   Check,
   Minus,
   X,
   Star,
   UserPlus,
   Plus,
-  ChevronLeft
+  ChevronLeft,
+  Network
 } from 'lucide-react'
 import { clsx } from 'clsx'
 import type { PortInfo } from '../../../shared/types'
+import { nextFreePort } from '../../../shared/next-free-port'
+import { OccupancySparkline } from './OccupancySparkline'
+import { formatUptime } from '../lib/portOccupancy'
 
 const VIRTUALIZE_THRESHOLD = 60
 const ROW_HEIGHT = 44
-const EXPANDED_EXTRA = 96
+const EXPANDED_EXTRA = 140
 
 function formatMemory(rss: number): string {
   if (rss < 1024) return `${rss} KB`
@@ -116,7 +121,6 @@ function ActionMenu({
   const openInTerminal = usePortStore((s) => s.openInTerminal)
   const openInVSCode = usePortStore((s) => s.openInVSCode)
   const openQuickPeek = useUIStore((s) => s.openQuickPeek)
-  const setNav = useUIStore((s) => s.setNav)
   const addToast = useUIStore((s) => s.addToast)
   const confirmDestructive = useSettingsStore((s) => s.confirmDestructive)
   const protectSystemPorts = useSettingsStore((s) => s.protectSystemPorts)
@@ -160,17 +164,21 @@ function ActionMenu({
         onClose()
       }
     },
-    {
-      id: 'browser',
-      label: 'Open in Browser',
-      icon: Globe,
-      shortcut: 'O',
-      className: 'hover:bg-info/10 text-text-secondary hover:text-info',
-      handler: () => {
-        openInBrowser(port.port)
-        onClose()
-      }
-    },
+    ...(port.role === 'connection'
+      ? []
+      : [
+          {
+            id: 'browser',
+            label: 'Open in Browser',
+            icon: Globe,
+            shortcut: 'O',
+            className: 'hover:bg-info/10 text-text-secondary hover:text-info',
+            handler: () => {
+              openInBrowser(port.port)
+              onClose()
+            }
+          }
+        ]),
     {
       id: 'terminal',
       label: 'Open Terminal',
@@ -195,93 +203,96 @@ function ActionMenu({
     },
     {
       id: 'copy',
-      label: 'Copy Address',
+      label: port.role === 'connection' ? 'Copy Peer' : 'Copy Address',
       icon: Copy,
       className: 'hover:bg-bg-hover text-text-secondary hover:text-text-primary',
       handler: () => {
-        navigator.clipboard.writeText(`localhost:${port.port}`)
-        addToast({ type: 'info', title: 'Copied', message: `localhost:${port.port}` })
+        const value =
+          port.role === 'connection'
+            ? `${port.peerAddress}:${port.peerPort}`
+            : `localhost:${port.port}`
+        navigator.clipboard.writeText(value)
+        addToast({ type: 'info', title: 'Copied', message: value })
         onClose()
       }
     },
-    {
-      id: 'add-profiles',
-      label: 'Add to profiles',
-      icon: UserPlus,
-      className: 'hover:bg-accent/10 text-text-secondary hover:text-accent',
-      trailing: ChevronRight,
-      handler: () => setPanel('profiles')
-    },
-    { id: 'divider-1' },
-    {
-      id: 'restart',
-      label: 'Restart Process',
-      icon: RotateCw,
-      shortcut: 'R',
-      className: 'hover:bg-warning/10 text-text-secondary hover:text-warning',
-      handler: async () => {
-        onClose()
-        const doRestart = async () => {
-          addToast({ type: 'info', title: 'Restarting...', message: `Port ${port.port} (${port.command})` })
-          const result = await restartPort(port.pid, port.projectPath)
-          addToast({
-            type: result.success ? 'success' : 'error',
-            title: result.success ? 'Process restarted' : 'Restart Failed',
-            message: result.success
-              ? result.hint || `Port ${port.port} — command re-launched`
-              : result.error || 'Unknown error'
-          })
-        }
-        if (confirmDestructive) {
-          showConfirm({
-            title: 'Restart Process',
-            message: `Are you sure you want to restart port ${port.port} (${port.command})?`,
-            variant: 'warning',
-            confirmLabel: 'Restart',
-            onConfirm: doRestart
-          })
-        } else {
-          await doRestart()
-        }
-      }
-    },
-    {
-      id: 'kill',
-      label: 'Kill Process',
-      icon: Trash2,
-      shortcut: 'K',
-      className: 'hover:bg-danger/10 text-text-secondary hover:text-danger',
-      handler: async () => {
-        onClose()
-        if (protectSystemPorts && port.isCritical) {
-          addToast({
-            type: 'warning',
-            title: 'Protected Port',
-            message: `Port ${port.port} is protected. Disable "Protect system ports" in Settings to kill it.`
-          })
-          return
-        }
-        const doKill = async () => {
-          const success = await killPort(port.pid)
-          addToast({
-            type: success ? 'success' : 'error',
-            title: success ? 'Process Killed' : 'Failed to Kill',
-            message: `Port ${port.port} (${port.command}) PID ${port.pid}`
-          })
-        }
-        if (confirmDestructive) {
-          showConfirm({
-            title: 'Kill Process',
-            message: `Are you sure you want to kill port ${port.port} (${port.command}, PID ${port.pid})?`,
-            variant: port.isCritical ? 'warning' : 'danger',
-            confirmLabel: 'Kill',
-            onConfirm: doKill
-          })
-        } else {
-          await doKill()
-        }
-      }
-    }
+    ...(port.role === 'connection'
+      ? []
+      : [
+          {
+            id: 'add-profiles',
+            label: 'Add to profiles',
+            icon: UserPlus,
+            className: 'hover:bg-accent/10 text-text-secondary hover:text-accent',
+            trailing: ChevronRight,
+            handler: () => setPanel('profiles')
+          },
+          ...(protectSystemPorts && port.isCritical
+            ? []
+            : [
+                { id: 'divider-1' },
+                {
+                  id: 'restart',
+                  label: 'Restart Process',
+                  icon: RotateCw,
+                  shortcut: 'R',
+                  className:
+                    'hover:bg-warning/10 text-text-secondary hover:text-warning',
+                  handler: async () => {
+                    onClose()
+                    const doRestart = async () => {
+                      addToast({
+                        type: 'info',
+                        title: 'Restarting...',
+                        message: `Port ${port.port} (${port.command})`
+                      })
+                      const result = await restartPort(
+                        port.pid,
+                        port.projectPath
+                      )
+                      addToast({
+                        type: result.success ? 'success' : 'error',
+                        title: result.success
+                          ? 'Process restarted'
+                          : 'Restart Failed',
+                        message: result.success
+                          ? result.hint ||
+                            `Port ${port.port} — command re-launched`
+                          : result.error || 'Unknown error'
+                      })
+                    }
+                    if (confirmDestructive) {
+                      showConfirm({
+                        title: 'Restart Process',
+                        message: `Are you sure you want to restart port ${port.port} (${port.command})?`,
+                        variant: 'warning',
+                        confirmLabel: 'Restart',
+                        onConfirm: doRestart
+                      })
+                    } else {
+                      await doRestart()
+                    }
+                  }
+                },
+                {
+                  id: 'kill',
+                  label: 'Kill Process',
+                  icon: Trash2,
+                  shortcut: 'K',
+                  className:
+                    'hover:bg-danger/10 text-text-secondary hover:text-danger',
+                  handler: async () => {
+                    onClose()
+                    const success = await killPort(port.pid)
+                    addToast({
+                      type: success ? 'success' : 'error',
+                      title: success ? 'Process Killed' : 'Failed to Kill',
+                      message: `Port ${port.port} (${port.command}) PID ${port.pid}`
+                    })
+                  }
+                }
+              ])
+        ])
   ]
 
   return (
@@ -343,7 +354,6 @@ function ActionMenu({
             type="button"
             onClick={() => {
               requestOpenProfileCreator()
-              setNav({ module: 'settings', screen: 'profiles' })
               onClose()
             }}
             className="w-full flex items-center gap-2.5 px-3 py-1.5 text-xs hover:bg-accent/10 text-accent transition-colors"
@@ -391,6 +401,72 @@ function ActionMenu({
       )}
     </div>
   )
+}
+
+function OccupancyDetails({ port }: { port: number }) {
+  const occupancy = usePortStore((s) => s.occupancy[port])
+  const ports = usePortStore((s) => s.ports)
+  const upMs = occupancy?.upSince ? Date.now() - occupancy.upSince : 0
+  const used = ports
+    .filter((p) => p.role !== 'connection')
+    .map((p) => p.port)
+  const next = nextFreePort(used, port + 1)
+  return (
+    <div className="mt-3 flex flex-wrap items-center gap-4 text-xs">
+      <div>
+        <span className="text-text-muted">Occupancy</span>
+        <div className="mt-1 text-accent">
+          <OccupancySparkline occupancy={occupancy} />
+        </div>
+      </div>
+      <div>
+        <span className="text-text-muted">Listening for</span>
+        <p className="mt-0.5 font-mono text-text-secondary">
+          {occupancy?.upSince ? formatUptime(upMs) : '—'}
+        </p>
+      </div>
+      {next != null && (
+        <div>
+          <span className="text-text-muted">Next free</span>
+          <button
+            type="button"
+            className="mt-0.5 block font-mono text-accent hover:underline"
+            onClick={() => void navigator.clipboard.writeText(String(next))}
+          >
+            :{next}
+          </button>
+        </div>
+      )}
+    </div>
+  )
+}
+
+function InboundPeers({ port }: { port: number }) {
+  const peers = usePortStore((s) =>
+    s.ports.filter((p) => p.role === 'connection' && p.port === port)
+  )
+  if (peers.length === 0) return null
+  return (
+    <div className="mt-3 text-xs">
+      <span className="text-text-muted">Inbound connections</span>
+      <ul className="mt-1 space-y-0.5 font-mono text-text-secondary">
+        {peers.slice(0, 12).map((c) => (
+          <li key={`${c.pid}:${c.peerAddress}:${c.peerPort}`}>
+            {c.peerAddress}:{c.peerPort}
+          </li>
+        ))}
+        {peers.length > 12 && (
+          <li className="text-text-muted">+{peers.length - 12} more</li>
+        )}
+      </ul>
+    </div>
+  )
+}
+
+function portRowKey(port: PortInfo): string {
+  return port.role === 'connection'
+    ? `${port.pid}:${port.port}:c:${port.peerAddress}:${port.peerPort}`
+    : `${port.pid}:${port.port}`
 }
 
 type PortRowProps = {
@@ -478,6 +554,18 @@ const PortRow = memo(function PortRow({
             <span className="font-mono text-sm font-semibold text-text-primary">
               {port.port}
             </span>
+            {port.role === 'connection' ? (
+              <span className="text-[10px] font-mono text-text-muted truncate max-w-[140px]">
+                ← {port.peerAddress}:{port.peerPort}
+              </span>
+            ) : port.connectionCount > 0 ? (
+              <span
+                className="text-[10px] px-1.5 py-0.5 rounded-md bg-accent/10 text-accent tabular-nums"
+                title={`${port.connectionCount} inbound connection${port.connectionCount === 1 ? '' : 's'}`}
+              >
+                {port.connectionCount}
+              </span>
+            ) : null}
           </div>
         </td>
         <td className="py-2.5 px-3">
@@ -494,6 +582,14 @@ const PortRow = memo(function PortRow({
             <span className="text-sm text-text-secondary truncate max-w-[160px]">
               {port.command}
             </span>
+            {port.runtime ? (
+              <span
+                className="text-[10px] px-1.5 py-0.5 rounded-md bg-bg-elevated text-text-muted font-mono"
+                title={port.runtime}
+              >
+                {port.runtime}
+              </span>
+            ) : null}
           </div>
         </td>
         <td className="py-2.5 px-3">
@@ -598,6 +694,12 @@ const PortRow = memo(function PortRow({
                 </div>
               </div>
             </div>
+            {port.role === 'connection' ? null : (
+              <>
+                <OccupancyDetails port={port.port} />
+                <InboundPeers port={port.port} />
+              </>
+            )}
           </td>
         </tr>
       )}
@@ -684,6 +786,14 @@ export function PortTable() {
   const showConfirm = useUIStore((s) => s.showConfirm)
   const groupByProject = usePortStore((s) => s.groupByProject)
   const setGroupByProject = usePortStore((s) => s.setGroupByProject)
+  const portView = usePortStore((s) => s.portView)
+  const setPortView = usePortStore((s) => s.setPortView)
+  const hideSystemProcesses = useSettingsStore((s) => s.hideSystemProcesses)
+  const updateSettings = useSettingsStore((s) => s.updateSettings)
+  const reapplyFiltersAndSort = usePortStore((s) => s.reapplyFiltersAndSort)
+  const hiddenSystemCount = usePortStore(
+    (s) => s.ports.filter((p) => p.isSystem && p.role !== 'connection').length
+  )
   const expandedRows = useUIStore((s) => s.expandedRows)
   const highlightCritical = useSettingsStore((s) => s.highlightCritical)
   const activeProfileId = useSettingsStore((s) => s.activeProfileId)
@@ -760,7 +870,7 @@ export function PortTable() {
 
   const renderPortRow = (port: PortInfo, index: number) => (
     <PortRow
-      key={`${port.pid}:${port.port}`}
+      key={portRowKey(port)}
       port={port}
       index={index}
       isHighlighted={selectedIndex === index}
@@ -784,7 +894,7 @@ export function PortTable() {
 
   return (
     <div className="h-full flex flex-col bg-bg-card rounded-xl border border-border-subtle overflow-hidden">
-      {selectedPids.size > 0 && (
+      {selectedPids.size > 0 && portView !== 'connections' && (
         <div className="flex items-center gap-3 px-4 py-2 bg-accent/5 border-b border-border-subtle animate-in fade-in duration-100">
           <span className="text-xs text-accent font-semibold">
             {selectedPids.size} selected
@@ -834,17 +944,27 @@ export function PortTable() {
                 <td colSpan={10} className="text-center py-16">
                   <div className="flex flex-col items-center gap-3">
                     <AlertTriangle className="w-8 h-8 text-text-muted" />
-                    {ports.length === 0 ? (
+                    {ports.length === 0 ||
+                    (portView === 'connections' &&
+                      !ports.some((p) => p.role === 'connection')) ? (
                       <>
                         <p className="text-sm text-text-muted">
-                          No listening ports found
+                          {portView === 'connections'
+                            ? 'No inbound connections'
+                            : 'No listening ports found'}
                         </p>
                         <p className="text-xs text-text-muted max-w-sm">
-                          Start a development server (for example{' '}
-                          <span className="font-mono text-text-secondary">
-                            npm run dev
-                          </span>
-                          ) and it will show up here.
+                          {portView === 'connections'
+                            ? 'ESTABLISHED clients talking to your listeners will show up here.'
+                            : (
+                              <>
+                                Start a development server (for example{' '}
+                                <span className="font-mono text-text-secondary">
+                                  npm run dev
+                                </span>
+                                ) and it will show up here.
+                              </>
+                            )}
                         </p>
                       </>
                     ) : (
@@ -881,7 +1001,12 @@ export function PortTable() {
                     </tr>
                     {ports.map((port) => {
                       const index = filteredPorts.findIndex(
-                        (p) => p.pid === port.pid && p.port === port.port
+                        (p) =>
+                          p.pid === port.pid &&
+                          p.port === port.port &&
+                          p.role === port.role &&
+                          p.peerAddress === port.peerAddress &&
+                          p.peerPort === port.peerPort
                       )
                       return renderPortRow(port, index)
                     })}
@@ -925,7 +1050,38 @@ export function PortTable() {
 
       <div className="flex items-center justify-between px-4 py-2 border-t border-border-subtle text-[11px] text-text-muted">
         <div className="flex items-center gap-3">
-          <span>{filteredPorts.length} ports</span>
+          <span>
+            {filteredPorts.length}{' '}
+            {portView === 'connections' ? 'connections' : 'ports'}
+          </span>
+          <div className="flex items-center rounded-md border border-border-subtle overflow-hidden">
+            <button
+              type="button"
+              onClick={() => setPortView('listen')}
+              className={clsx(
+                'px-2 py-0.5 transition-colors',
+                portView === 'listen'
+                  ? 'bg-accent/10 text-accent'
+                  : 'hover:bg-bg-hover hover:text-text-secondary'
+              )}
+            >
+              Listeners
+            </button>
+            <button
+              type="button"
+              onClick={() => setPortView('connections')}
+              className={clsx(
+                'flex items-center gap-1 px-2 py-0.5 transition-colors',
+                portView === 'connections'
+                  ? 'bg-accent/10 text-accent'
+                  : 'hover:bg-bg-hover hover:text-text-secondary'
+              )}
+              title="Inbound connections to your listeners"
+            >
+              <Network className="w-3 h-3" />
+              Connections
+            </button>
+          </div>
           <button
             onClick={() => setGroupByProject(!groupByProject)}
             className={clsx(
@@ -937,6 +1093,33 @@ export function PortTable() {
           >
             <FolderOpen className="w-3 h-3" />
             Group
+          </button>
+          <button
+            onClick={() => {
+              updateSettings({ hideSystemProcesses: !hideSystemProcesses })
+              queueMicrotask(() => reapplyFiltersAndSort())
+            }}
+            className={clsx(
+              'flex items-center gap-1 px-2 py-0.5 rounded-md transition-colors',
+              hideSystemProcesses
+                ? 'bg-accent/10 text-accent'
+                : 'hover:bg-bg-hover hover:text-text-secondary'
+            )}
+            title={
+              hideSystemProcesses
+                ? 'System processes are hidden'
+                : 'System processes are visible'
+            }
+          >
+            {hideSystemProcesses ? (
+              <EyeOff className="w-3 h-3" />
+            ) : (
+              <Eye className="w-3 h-3" />
+            )}
+            {hideSystemProcesses ? 'Hide system' : 'Show system'}
+            {hiddenSystemCount > 0 && hideSystemProcesses && (
+              <span className="text-text-muted">({hiddenSystemCount})</span>
+            )}
           </button>
         </div>
         <div className="flex items-center gap-4">

@@ -4,6 +4,7 @@ import { writeFileSync, unlinkSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
 import { openExternal } from '../os/shell'
+import { execFileSafe } from '../os/exec-file-safe'
 import type { ProcessDetails } from '../../shared/types'
 
 const execFileAsync = promisify(execFile)
@@ -13,18 +14,6 @@ let autoFocusTerminal = true
 
 export function setAutoFocusTerminal(enabled: boolean): void {
   autoFocusTerminal = enabled
-}
-
-/** execFile that never rejects — non-zero exits and missing binaries yield empty stdout. */
-async function execFileSafe(
-  cmd: string,
-  args: string[]
-): Promise<{ stdout: string; stderr: string }> {
-  try {
-    return await execFileAsync(cmd, args)
-  } catch {
-    return { stdout: '', stderr: '' }
-  }
 }
 
 function isValidPid(pid: number): boolean {
@@ -48,16 +37,16 @@ export async function getProcessDetails(pid: number): Promise<ProcessDetails | n
       '-p',
       String(pid),
       '-o',
-      'pid=,%cpu=,%mem=,rss=,etime=,user=,command='
+      'pid=,ppid=,%cpu=,%mem=,rss=,etime=,user=,command='
     ])
 
     const line = stdout.trim()
     if (!line) return null
 
     const parts = line.trim().split(/\s+/)
-    if (parts.length < 7) return null
+    if (parts.length < 8) return null
 
-    const fullCommand = parts.slice(6).join(' ')
+    const fullCommand = parts.slice(7).join(' ')
 
     const { stdout: childrenOut } = await execFileSafe('pgrep', ['-P', String(pid)])
     const children = childrenOut
@@ -83,11 +72,12 @@ export async function getProcessDetails(pid: number): Promise<ProcessDetails | n
 
     return {
       pid: parseInt(parts[0], 10),
-      cpu: parseFloat(parts[1]) || 0,
-      memory: parseFloat(parts[2]) || 0,
-      memoryRSS: parseInt(parts[3], 10) || 0,
-      uptime: parts[4],
-      user: parts[5],
+      ppid: parseInt(parts[1], 10) || 0,
+      cpu: parseFloat(parts[2]) || 0,
+      memory: parseFloat(parts[3]) || 0,
+      memoryRSS: parseInt(parts[4], 10) || 0,
+      uptime: parts[5],
+      user: parts[6],
       command: fullCommand.split('/').pop()?.split(' ')[0] || fullCommand,
       fullCommand,
       children,

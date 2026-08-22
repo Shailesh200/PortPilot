@@ -1,10 +1,4 @@
-import {
-  existsSync,
-  readFileSync,
-  writeFileSync,
-  renameSync,
-  mkdirSync
-} from 'fs'
+import { existsSync, readFileSync, writeFileSync } from 'fs'
 import { randomUUID } from 'crypto'
 import {
   decryptSecret,
@@ -15,8 +9,8 @@ import {
   secretIndexHas,
   rememberSecret,
   forgetPersistedSecret,
-  getUserDataPath,
-  userDataFile
+  userDataFile,
+  writeJsonAtomicSilent
 } from '../../os'
 import postgres from 'postgres'
 import mysql from 'mysql2/promise'
@@ -67,16 +61,7 @@ function storePath(): string {
 }
 
 function persist(): void {
-  try {
-    const dir = getUserDataPath()
-    if (!existsSync(dir)) mkdirSync(dir, { recursive: true })
-    const target = storePath()
-    const tmp = `${target}.tmp`
-    writeFileSync(tmp, JSON.stringify(store, null, 2), 'utf-8')
-    renameSync(tmp, target)
-  } catch {
-    /* ignore */
-  }
+  writeJsonAtomicSilent(storePath(), store)
 }
 
 export function loadDbStore(): StoreFile {

@@ -1,14 +1,9 @@
 import type { BrowserWindow } from 'electron'
-import type { PortInfo } from '../../shared/types'
+import type { AlertSettings, PortInfo } from '../../shared/types'
+import { isSystemProcess } from '../../shared/system-process'
 import { deliverAlert } from './notifications'
 import { consumeExpectedStop } from './expected-stops'
 import { openInBrowser } from './process-manager'
-
-export interface AlertSettings {
-  notifyPortChange: boolean
-  notifyCrash: boolean
-  autoOpenBrowser: boolean
-}
 
 const DEFAULT_ALERT_SETTINGS: AlertSettings = {
   notifyPortChange: true,
@@ -25,10 +20,7 @@ const CRASH_DEDUP_MS = 60_000
 
 /** macOS helpers that open random high ports — not worth crash spam. */
 function isNoiseProcess(p: PortInfo): boolean {
-  if (p.projectPath) return false
-  return /^(ControlCe|rapportd|sharingd|identityservices|UserEventAgent|WiFiAgent|logioptio|LogiMgr|AirPlayXPC|bluetoothd|coreaudiod|WindowManager)/i.test(
-    p.command
-  )
+  return isSystemProcess(p)
 }
 
 export function updateAlertSettings(partial: Partial<AlertSettings>): void {
@@ -58,6 +50,7 @@ export function processPortAlerts(
 ): void {
   const current = new Map<number, PortInfo>()
   for (const p of ports) {
+    if (p.role === 'connection') continue
     // Prefer the first TCP-ish entry per port number for messaging
     if (!current.has(p.port)) current.set(p.port, p)
   }

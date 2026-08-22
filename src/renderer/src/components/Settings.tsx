@@ -2,8 +2,10 @@ import { useState, useEffect, type ChangeEventHandler, type ReactElement } from 
 import { useSettingsStore } from '../stores/settingsStore'
 import { usePortStore } from '../stores/portStore'
 import { useUIStore } from '../stores/uiStore'
-import type { AppSettings, Profile } from '../../../shared/types'
+import type { AppSettings, Profile, ProfileWorkspace, TextToolId, UpdateInfo } from '../../../shared/types'
 import { DEFAULT_SETTINGS } from '../../../shared/defaults'
+import { TEXT_TOOLS } from '../../../shared/modules/registry'
+import { applyActiveProfileFilter } from '../lib/applyProfile'
 import {
   GLOBAL_SHORTCUT_OPTIONS,
   formatAccelerator,
@@ -13,60 +15,27 @@ import {
   Settings as SettingsIcon,
   Monitor,
   Keyboard,
-  Bell,
   Shield,
-  User,
   Plus,
   Trash2,
   RotateCcw,
   Check,
   Download,
-  Upload
+  Upload,
+  RefreshCw
 } from 'lucide-react'
 import { clsx } from 'clsx'
 import appIcon from '../assets/app-icon.png'
+import { Switch } from './Switch'
 
-type SettingsTab =
-  | 'general'
-  | 'appearance'
-  | 'shortcuts'
-  | 'notifications'
-  | 'safety'
-  | 'profiles'
+type SettingsTab = 'general' | 'appearance' | 'shortcuts' | 'safety'
 
 const tabs: { id: SettingsTab; label: string; icon: typeof SettingsIcon }[] = [
   { id: 'general', label: 'General', icon: SettingsIcon },
   { id: 'appearance', label: 'Appearance', icon: Monitor },
   { id: 'shortcuts', label: 'Shortcuts', icon: Keyboard },
-  { id: 'notifications', label: 'Notifications', icon: Bell },
-  { id: 'safety', label: 'Safety', icon: Shield },
-  { id: 'profiles', label: 'Profiles', icon: User }
+  { id: 'safety', label: 'Safety', icon: Shield }
 ]
-
-function Toggle({
-  checked,
-  onChange
-}: {
-  checked: boolean
-  onChange: (v: boolean) => void
-}) {
-  return (
-    <button
-      onClick={() => onChange(!checked)}
-      className={clsx(
-        'relative w-9 h-5 rounded-full transition-colors duration-200 flex-shrink-0',
-        checked ? 'bg-accent' : 'bg-border-strong'
-      )}
-    >
-      <div
-        className={clsx(
-          'absolute top-0.5 w-4 h-4 rounded-full bg-white shadow transition-transform duration-200',
-          checked ? 'translate-x-[18px]' : 'translate-x-0.5'
-        )}
-      />
-    </button>
-  )
-}
 
 function SettingRow({
   label,
@@ -165,11 +134,19 @@ function GeneralSettings() {
   const refreshInterval = useSettingsStore((s) => s.refreshInterval)
   const autoOpenBrowser = useSettingsStore((s) => s.autoOpenBrowser)
   const autoFocusTerminal = useSettingsStore((s) => s.autoFocusTerminal)
+  const waitOpenBrowser = useSettingsStore((s) => s.waitOpenBrowser)
+  const regexLineByLine = useSettingsStore((s) => s.regexLineByLine)
+  const jsPlaygroundAutoRun = useSettingsStore((s) => s.jsPlaygroundAutoRun)
   const updateSettings = useSettingsStore((s) => s.updateSettings)
+  const [clipCapture, setClipCapture] = useState(false)
+
+  useEffect(() => {
+    void window.api.clipboardIsCaptureEnabled().then(setClipCapture).catch(() => {})
+  }, [])
 
   return (
     <div>
-      <SectionHeader title="Polling" />
+      <SectionHeader title="Ports" />
       <SettingRow
         label="Refresh interval"
         description="How often to scan for active ports"
@@ -186,9 +163,81 @@ function GeneralSettings() {
           ]}
         />
       </SettingRow>
+      <SettingRow
+        label="Auto-open browser"
+        description="Open localhost in the browser when a new listener starts"
+      >
+        <Switch
+          checked={autoOpenBrowser}
+          onChange={(v) => updateSettings({ autoOpenBrowser: v })}
+        />
+      </SettingRow>
+      <SettingRow
+        label="Wait for port → open browser"
+        description="When Cmd+K wait (or a recently-stopped Wait chip) sees the port come up, open it"
+      >
+        <Switch
+          checked={waitOpenBrowser}
+          onChange={(v) => updateSettings({ waitOpenBrowser: v })}
+        />
+      </SettingRow>
+      <SettingRow
+        label="Auto-focus terminal"
+        description="Focus the terminal window when restarting a process"
+      >
+        <Switch
+          checked={autoFocusTerminal}
+          onChange={(v) => updateSettings({ autoFocusTerminal: v })}
+        />
+      </SettingRow>
 
       <Divider />
-      <SectionHeader title="Global Shortcut" />
+      <NotificationsSettings />
+
+      <Divider />
+      <HostsViewer />
+
+      <Divider />
+      <SectionHeader title="Text & Data" />
+      <SettingRow
+        label="Regex: match line by line"
+        description="Treat each line as its own test string so ^ and $ work with newlines (toggle also lives in the playground)"
+      >
+        <Switch
+          checked={regexLineByLine}
+          onChange={(v) => updateSettings({ regexLineByLine: v })}
+        />
+      </SettingRow>
+      <SettingRow
+        label="JS Sandbox auto-run"
+        description="Default Auto-run on when you open the sandbox"
+      >
+        <Switch
+          checked={jsPlaygroundAutoRun}
+          onChange={(v) => updateSettings({ jsPlaygroundAutoRun: v })}
+        />
+      </SettingRow>
+      <SettingRow
+        label="Clipboard capture"
+        description="Record copied text into Clipboard history"
+      >
+        <Switch
+          checked={clipCapture}
+          onChange={(v) => {
+            void window.api.clipboardSetCapture(v).then(setClipCapture)
+          }}
+        />
+      </SettingRow>
+
+      <Divider />
+      <SectionHeader title="Database" />
+      <p className="text-xs text-text-muted mb-3">
+        Destructive SQL still asks for confirmation in the editor. New
+        connections can be marked read-only when you create them.
+      </p>
+
+      <Divider />
+      <SectionHeader title="App" />
       <SettingRow
         label="App launcher shortcut"
         description="System-wide shortcut to show/focus PortPilot"
@@ -230,27 +279,184 @@ function GeneralSettings() {
       </SettingRow>
 
       <Divider />
-      <SectionHeader title="Automation" />
+      <UpdatesSettings />
+    </div>
+  )
+}
 
+function updateStatusCopy(info: UpdateInfo): string {
+  switch (info.status) {
+    case 'checking':
+      return 'Checking for a new version…'
+    case 'available':
+      return `New version available — ${info.version}`
+    case 'downloading':
+      return `Downloading version ${info.version}…`
+    case 'downloaded':
+      return `Version ${info.version} is ready.`
+    case 'not-available':
+      return 'You’re on the latest version.'
+    case 'error':
+      return info.message || 'Could not check for updates.'
+    default:
+      return 'Check for updates anytime.'
+  }
+}
+
+function UpdatesSettings() {
+  const autoUpdate = useSettingsStore((s) => s.autoUpdate)
+  const updateSettings = useSettingsStore((s) => s.updateSettings)
+  const [info, setInfo] = useState<UpdateInfo | null>(null)
+  const [busy, setBusy] = useState(false)
+
+  useEffect(() => {
+    void window.api.getUpdateStatus().then(setInfo).catch(() => {})
+    return window.api.onUpdateStatus(setInfo)
+  }, [])
+
+  const current = info?.currentVersion
+  const status = info?.status
+  const checking = status === 'checking'
+  const downloading = status === 'downloading'
+  const canCheck = !checking && !downloading
+  const canDownload = status === 'available' && info?.canInstall === true
+  const canRestart = status === 'downloaded'
+  const percent =
+    downloading && typeof info?.percent === 'number' ? info.percent : null
+
+  const btnSecondary =
+    'inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-bg-elevated text-text-secondary text-xs font-medium hover:text-text-primary border border-border-strong disabled:opacity-40 disabled:cursor-not-allowed'
+  const btnPrimary =
+    'px-3 py-1.5 rounded-md bg-accent text-white text-xs font-medium hover:bg-accent-hover disabled:opacity-40 disabled:cursor-not-allowed'
+
+  return (
+    <>
+      <SectionHeader title="Updates" />
       <SettingRow
-        label="Auto-open browser"
-        description="Open localhost in browser when a dev server starts"
+        label="Auto-update"
+        description="Automatically check for new versions."
       >
-        <Toggle
-          checked={autoOpenBrowser}
-          onChange={(v) => updateSettings({ autoOpenBrowser: v })}
+        <Switch
+          checked={autoUpdate}
+          onChange={(v) => updateSettings({ autoUpdate: v })}
         />
       </SettingRow>
+      <div className="py-3">
+        <div className="flex items-center justify-between gap-4">
+          <div className="flex-1 min-w-0">
+            <p className="text-sm text-text-primary">
+              {current ? `Version ${current}` : 'Version'}
+            </p>
+            <p className="text-xs text-text-muted mt-0.5">
+              {info ? updateStatusCopy(info) : 'Loading update status…'}
+            </p>
+          </div>
+          <div className="flex flex-shrink-0 items-center gap-2">
+            {canDownload && (
+              <button
+                type="button"
+                disabled={busy}
+                onClick={() => {
+                  setBusy(true)
+                  void window.api
+                    .downloadUpdate()
+                    .then(setInfo)
+                    .finally(() => setBusy(false))
+                }}
+                className={btnPrimary}
+              >
+                Download and Install
+              </button>
+            )}
+            {canRestart && (
+              <button
+                type="button"
+                onClick={() => void window.api.quitAndInstall()}
+                className={btnPrimary}
+              >
+                Restart PortPilot
+              </button>
+            )}
+            <button
+              type="button"
+              disabled={!canCheck || busy}
+              onClick={() => {
+                setBusy(true)
+                void window.api
+                  .checkForUpdates()
+                  .then(setInfo)
+                  .finally(() => setBusy(false))
+              }}
+              className={btnSecondary}
+            >
+              <RefreshCw
+                className={clsx('w-3 h-3', (busy || checking) && 'animate-spin')}
+              />
+              Check now
+            </button>
+          </div>
+        </div>
+        {percent !== null && (
+          <div className="mt-3">
+            <div className="h-1.5 w-full overflow-hidden rounded-full bg-border-strong">
+              <div
+                className="h-full rounded-full bg-accent transition-[width] duration-200"
+                style={{ width: `${Math.max(0, Math.min(100, percent))}%` }}
+              />
+            </div>
+            <p className="mt-1.5 text-[11px] tabular-nums text-text-muted">
+              {percent}%
+            </p>
+          </div>
+        )}
+      </div>
+    </>
+  )
+}
 
-      <SettingRow
-        label="Auto-focus terminal"
-        description="Focus the terminal window when restarting a process"
-      >
-        <Toggle
-          checked={autoFocusTerminal}
-          onChange={(v) => updateSettings({ autoFocusTerminal: v })}
-        />
-      </SettingRow>
+function HostsViewer() {
+  const [data, setData] = useState<{
+    ok: boolean
+    path: string
+    lines: { raw: string; ip?: string; names?: string[]; comment?: boolean }[]
+    error?: string
+  } | null>(null)
+
+  useEffect(() => {
+    void window.api.readHostsFile().then(setData).catch(() => {})
+  }, [])
+
+  const entries =
+    data?.lines.filter((l) => l.ip && l.names && l.names.length > 0) ?? []
+
+  return (
+    <div>
+      <SectionHeader title="Hosts file" />
+      <p className="text-xs text-text-muted mb-3">
+        Read-only view of {data?.path ?? '/etc/hosts'}. Editing is not available
+        from PortPilot.
+      </p>
+      {!data ? (
+        <p className="text-xs text-text-muted">Loading…</p>
+      ) : !data.ok ? (
+        <p className="text-xs text-danger">{data.error ?? 'Could not read hosts'}</p>
+      ) : entries.length === 0 ? (
+        <p className="text-xs text-text-muted">No host mappings found.</p>
+      ) : (
+        <div className="max-h-48 overflow-auto rounded-lg border border-border-subtle">
+          {entries.map((line, i) => (
+            <div
+              key={`${line.ip}-${i}`}
+              className="flex gap-3 px-3 py-1.5 text-[12px] font-mono border-b border-border-subtle last:border-0"
+            >
+              <span className="text-accent w-36 flex-shrink-0">{line.ip}</span>
+              <span className="text-text-secondary truncate">
+                {line.names?.join(' ')}
+              </span>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   )
 }
@@ -266,7 +472,7 @@ function AppearanceSettings() {
         label="Dark mode"
         description="Switch between dark and light color themes"
       >
-        <Toggle
+        <Switch
           checked={darkMode}
           onChange={(v) => updateSettings({ darkMode: v })}
         />
@@ -410,7 +616,7 @@ function NotificationsSettings() {
         label="Port started / stopped"
         description="In-app toast when focused; system notification when PortPilot is in the background"
       >
-        <Toggle
+        <Switch
           checked={notifyPortChange}
           onChange={(v) => updateSettings({ notifyPortChange: v })}
         />
@@ -420,7 +626,7 @@ function NotificationsSettings() {
         label="High CPU usage"
         description="In-app toast when a process exceeds the CPU threshold"
       >
-        <Toggle
+        <Switch
           checked={notifyHighCpu}
           onChange={(v) => updateSettings({ notifyHighCpu: v })}
         />
@@ -430,7 +636,7 @@ function NotificationsSettings() {
         label="Process disappeared"
         description="Alert when a port stops unexpectedly (not after you kill/restart it). Uses a system notification when the app is in the background"
       >
-        <Toggle
+        <Switch
           checked={notifyCrash}
           onChange={(v) => updateSettings({ notifyCrash: v })}
         />
@@ -443,6 +649,7 @@ function SafetySettings() {
   const confirmDestructive = useSettingsStore((s) => s.confirmDestructive)
   const highlightCritical = useSettingsStore((s) => s.highlightCritical)
   const protectSystemPorts = useSettingsStore((s) => s.protectSystemPorts)
+  const hideSystemProcesses = useSettingsStore((s) => s.hideSystemProcesses)
   const updateSettings = useSettingsStore((s) => s.updateSettings)
   const clearHistory = usePortStore((s) => s.clearHistory)
   const resetSettings = useSettingsStore((s) => s.resetSettings)
@@ -460,11 +667,17 @@ function SafetySettings() {
       confirmDestructive: state.confirmDestructive,
       highlightCritical: state.highlightCritical,
       protectSystemPorts: state.protectSystemPorts,
+      hideSystemProcesses: state.hideSystemProcesses,
       cpuThreshold: state.cpuThreshold,
       memoryThreshold: state.memoryThreshold,
       notifyPortChange: state.notifyPortChange,
       notifyHighCpu: state.notifyHighCpu,
       notifyCrash: state.notifyCrash,
+      pinnedTextTools: state.pinnedTextTools,
+      regexLineByLine: state.regexLineByLine,
+      jsPlaygroundAutoRun: state.jsPlaygroundAutoRun,
+      waitOpenBrowser: state.waitOpenBrowser,
+      autoUpdate: state.autoUpdate,
       profiles: state.profiles,
       activeProfileId: state.activeProfileId
     }
@@ -565,7 +778,7 @@ function SafetySettings() {
         label="Confirm before killing"
         description="Show a confirmation dialog before killing a process"
       >
-        <Toggle
+        <Switch
           checked={confirmDestructive}
           onChange={(v) => updateSettings({ confirmDestructive: v })}
         />
@@ -575,9 +788,24 @@ function SafetySettings() {
         label="Highlight critical processes"
         description="Show a shield icon on system-critical ports (22, 80, 443, etc.)"
       >
-        <Toggle
+        <Switch
           checked={highlightCritical}
           onChange={(v) => updateSettings({ highlightCritical: v })}
+        />
+      </SettingRow>
+
+      <SettingRow
+        label="Hide system processes"
+        description="Hide OS daemons (AirPlay, mDNS, Windows services, etc.) on the Ports dashboard. Local databases and language runtimes stay visible."
+      >
+        <Switch
+          checked={hideSystemProcesses}
+          onChange={(v) => {
+            updateSettings({ hideSystemProcesses: v })
+            queueMicrotask(() =>
+              usePortStore.getState().reapplyFiltersAndSort()
+            )
+          }}
         />
       </SettingRow>
 
@@ -585,7 +813,7 @@ function SafetySettings() {
         label="Protect system ports"
         description="Block kill/restart for system & well-known ports (below 1024, plus 5432, 3306, 6379, etc.)"
       >
-        <Toggle
+        <Switch
           checked={protectSystemPorts}
           onChange={(v) => updateSettings({ protectSystemPorts: v })}
         />
@@ -695,27 +923,23 @@ function SafetySettings() {
 
 const PROFILE_ICONS = ['🎨', '⚙️', '🗄️', '🌐', '🧪', '📦', '🔧', '🚀', '💻', '🔌']
 
-function ProfilesSettings() {
+function ProfilesSettings({ startCreating = false }: { startCreating?: boolean }) {
   const profiles = useSettingsStore((s) => s.profiles)
   const activeProfileId = useSettingsStore((s) => s.activeProfileId)
   const addProfile = useSettingsStore((s) => s.addProfile)
   const removeProfile = useSettingsStore((s) => s.removeProfile)
   const setActiveProfile = useSettingsStore((s) => s.setActiveProfile)
-  const openProfileCreator = useSettingsStore((s) => s.openProfileCreator)
-  const clearOpenProfileCreator = useSettingsStore((s) => s.clearOpenProfileCreator)
-  const setProfileFilter = usePortStore((s) => s.setProfileFilter)
   const addToast = useUIStore((s) => s.addToast)
-  const [isCreating, setIsCreating] = useState(false)
+  const hideSystemProcesses = useSettingsStore((s) => s.hideSystemProcesses)
+  const [isCreating, setIsCreating] = useState(startCreating)
   const [newName, setNewName] = useState('')
   const [newIcon, setNewIcon] = useState('🔧')
   const [newPorts, setNewPorts] = useState('')
-
-  useEffect(() => {
-    if (openProfileCreator) {
-      setIsCreating(true)
-      clearOpenProfileCreator()
-    }
-  }, [openProfileCreator, clearOpenProfileCreator])
+  const [snapshotWorkspace, setSnapshotWorkspace] = useState(true)
+  const [openOnActivate, setOpenOnActivate] = useState<
+    'stay' | 'ports' | 'text' | 'database'
+  >('stay')
+  const [textTool, setTextTool] = useState<TextToolId>('json-formatter')
 
   const handleCreate = () => {
     if (!newName.trim()) return
@@ -725,13 +949,31 @@ function ProfilesSettings() {
       .map((s) => parseInt(s.trim(), 10))
       .filter((n) => !isNaN(n) && n > 0)
 
+    const workspace: ProfileWorkspace | undefined = snapshotWorkspace
+      ? {
+          hideSystemProcesses,
+          portView: usePortStore.getState().portView,
+          groupByProject: usePortStore.getState().groupByProject,
+          ...(openOnActivate === 'stay'
+            ? {}
+            : { openOnActivate }),
+          ...(openOnActivate === 'text' ? { textTool } : {})
+        }
+      : openOnActivate === 'stay'
+        ? undefined
+        : {
+            openOnActivate,
+            ...(openOnActivate === 'text' ? { textTool } : {})
+          }
+
     addProfile({
       id,
       name: newName.trim(),
       icon: newIcon,
       favoritePorts,
       filters: {},
-      autoActions: {}
+      autoActions: {},
+      workspace
     })
     addToast({ type: 'success', title: 'Profile Created', message: newName.trim() })
     setIsCreating(false)
@@ -744,8 +986,10 @@ function ProfilesSettings() {
       <SectionHeader title="Developer Profiles" />
       <p className="text-xs text-text-muted mb-4">
         Favorite ports define which rows rise to the top and which ports are shown
-        when a profile is active. Add ports from the dashboard actions menu or
-        the menu bar. Empty favorites = show all ports when active.
+        when a profile is active. A workspace snapshot can restore listeners vs
+        connections, hide-system, grouping, and which module opens. Add ports from
+        the dashboard actions menu or the menu bar. Empty favorites = show all
+        ports when active.
       </p>
 
       <div className="space-y-2">
@@ -769,6 +1013,9 @@ function ProfilesSettings() {
                 {profile.favoritePorts.length > 0
                   ? profile.favoritePorts.join(', ')
                   : 'None'}
+                {profile.workspace?.openOnActivate
+                  ? ` · opens ${profile.workspace.openOnActivate}`
+                  : ''}
               </p>
             </div>
             <div className="flex items-center gap-1.5">
@@ -776,11 +1023,7 @@ function ProfilesSettings() {
                 onClick={() => {
                   const next = activeProfileId === profile.id ? null : profile.id
                   setActiveProfile(next)
-                  if (next) {
-                    setProfileFilter(profile.favoritePorts)
-                  } else {
-                    setProfileFilter([])
-                  }
+                  queueMicrotask(() => applyActiveProfileFilter())
                 }}
                 className={clsx(
                   'px-2.5 py-1 rounded-md text-xs font-medium transition-colors',
@@ -860,6 +1103,55 @@ function ProfilesSettings() {
               className="w-full bg-bg-elevated border border-border-strong rounded-md px-3 py-1.5 text-sm text-text-primary placeholder:text-text-muted focus:outline-none focus:border-accent/50 font-mono"
             />
           </div>
+          <label className="flex items-start gap-2 text-xs text-text-secondary cursor-pointer">
+            <input
+              type="checkbox"
+              checked={snapshotWorkspace}
+              onChange={(e) => setSnapshotWorkspace(e.target.checked)}
+              className="mt-0.5"
+            />
+            <span>
+              Remember current Ports view (listeners vs connections, hide
+              system, group by project)
+            </span>
+          </label>
+          <div>
+            <label className="text-[11px] text-text-muted mb-1 block">
+              When activated, open
+            </label>
+            <select
+              value={openOnActivate}
+              onChange={(e) =>
+                setOpenOnActivate(
+                  e.target.value as 'stay' | 'ports' | 'text' | 'database'
+                )
+              }
+              className="w-full bg-bg-elevated border border-border-strong rounded-md px-3 py-1.5 text-sm text-text-primary focus:outline-none focus:border-accent/50"
+            >
+              <option value="stay">Stay on current screen</option>
+              <option value="ports">Ports dashboard</option>
+              <option value="text">Text & Data tool</option>
+              <option value="database">Database</option>
+            </select>
+          </div>
+          {openOnActivate === 'text' && (
+            <div>
+              <label className="text-[11px] text-text-muted mb-1 block">
+                Default text tool
+              </label>
+              <select
+                value={textTool}
+                onChange={(e) => setTextTool(e.target.value as TextToolId)}
+                className="w-full bg-bg-elevated border border-border-strong rounded-md px-3 py-1.5 text-sm text-text-primary focus:outline-none focus:border-accent/50"
+              >
+                {TEXT_TOOLS.map((t) => (
+                  <option key={t.id} value={t.id}>
+                    {t.label}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
           <div className="flex items-center gap-2 pt-1">
             <button
               onClick={handleCreate}
@@ -893,23 +1185,30 @@ const tabComponents: Record<SettingsTab, () => ReactElement> = {
   general: GeneralSettings,
   appearance: AppearanceSettings,
   shortcuts: ShortcutsSettings,
-  notifications: NotificationsSettings,
-  safety: SafetySettings,
-  profiles: ProfilesSettings
+  safety: SafetySettings
 }
 
 export function Settings() {
   const nav = useUIStore((s) => s.nav)
   const setNav = useUIStore((s) => s.setNav)
   const navScreen =
-    nav.module === 'settings' ? (nav.screen as SettingsTab) : 'general'
+    nav.module === 'settings' &&
+    (nav.screen === 'general' ||
+      nav.screen === 'appearance' ||
+      nav.screen === 'shortcuts' ||
+      nav.screen === 'safety')
+      ? nav.screen
+      : 'general'
   const [activeTab, setActiveTab] = useState<SettingsTab>(navScreen)
   const [appVersion, setAppVersion] = useState('')
   const ActivePanel = tabComponents[activeTab]
 
   useEffect(() => {
-    if (nav.module === 'settings' && nav.screen in tabComponents) {
+    if (nav.module !== 'settings') return
+    if (nav.screen in tabComponents) {
       setActiveTab(nav.screen as SettingsTab)
+    } else {
+      setActiveTab('general')
     }
   }, [nav])
 
@@ -953,8 +1252,42 @@ export function Settings() {
         </div>
       </div>
 
-      <div className="flex-1 overflow-y-auto p-6 max-w-2xl">
+      <div className="flex-1 overflow-y-auto p-6 max-w-2xl [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
         <ActivePanel />
+      </div>
+    </div>
+  )
+}
+
+/** Create / manage profiles without a Settings tab. */
+export function ProfileCreatorDialog() {
+  const open = useSettingsStore((s) => s.openProfileCreator)
+  const clear = useSettingsStore((s) => s.clearOpenProfileCreator)
+
+  if (!open) return null
+
+  return (
+    <div
+      className="fixed inset-0 z-[95] flex items-center justify-center bg-black/50 backdrop-blur-sm"
+      onClick={clear}
+    >
+      <div
+        role="dialog"
+        aria-modal="true"
+        className="w-full max-w-lg max-h-[80vh] overflow-y-auto rounded-xl border border-border bg-bg-surface p-5 shadow-2xl"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-center justify-between mb-3">
+          <h2 className="text-sm font-semibold text-text-primary">Profiles</h2>
+          <button
+            type="button"
+            onClick={clear}
+            className="text-xs text-text-muted hover:text-text-primary"
+          >
+            Close
+          </button>
+        </div>
+        <ProfilesSettings startCreating />
       </div>
     </div>
   )

@@ -3,6 +3,8 @@ import { useSettingsStore } from '../stores/settingsStore'
 import { PortTable } from './PortTable'
 import { Activity, Cpu, MemoryStick, Network, RefreshCw, Search } from 'lucide-react'
 import { clsx } from 'clsx'
+import { useMemo } from 'react'
+import { formatAgo, recentlyStopped } from '../lib/portOccupancy'
 
 function StatsCard({
   icon: Icon,
@@ -41,10 +43,14 @@ export function Dashboard() {
   const isLoading = usePortStore((s) => s.isLoading)
   const cpuThreshold = useSettingsStore((s) => s.cpuThreshold)
   const memoryThreshold = useSettingsStore((s) => s.memoryThreshold)
+  const waitPort = usePortStore((s) => s.waitPort)
+  const waitingPort = usePortStore((s) => s.waitingPort)
 
   const uniqueProcesses = new Set(filteredPorts.map((p) => p.pid)).size
   const highCpu = filteredPorts.filter((p) => p.cpu > cpuThreshold).length
   const highMem = filteredPorts.filter((p) => p.memory > memoryThreshold).length
+  const occupancy = usePortStore((s) => s.occupancy)
+  const stopped = useMemo(() => recentlyStopped(occupancy), [occupancy])
 
   return (
     <div className="h-full flex flex-col overflow-hidden">
@@ -119,6 +125,34 @@ export function Dashboard() {
           }
         />
       </div>
+
+      {stopped.length > 0 && (
+        <div className="flex flex-wrap items-center gap-2 px-6 pb-0 pt-3">
+          <span className="text-[11px] uppercase tracking-wider text-text-muted">
+            Recently stopped
+          </span>
+          {stopped.map((item) => (
+            <span
+              key={`${item.port}-${item.at}`}
+              className="inline-flex items-center gap-1.5 rounded-full border border-border-subtle bg-bg-card px-2.5 py-1 text-[11px] text-text-secondary"
+              title={`${item.command} left :${item.port}`}
+            >
+              <span className="font-mono text-text-primary">:{item.port}</span>
+              <span className="truncate max-w-[8rem]">{item.command}</span>
+              <span className="text-text-muted">{formatAgo(item.at)}</span>
+              <button
+                type="button"
+                onClick={() =>
+                  waitPort(waitingPort === item.port ? null : item.port)
+                }
+                className="text-accent hover:underline"
+              >
+                {waitingPort === item.port ? 'Cancel wait' : 'Wait'}
+              </button>
+            </span>
+          ))}
+        </div>
+      )}
 
       <div className="flex-1 overflow-hidden px-6 pb-6">
         <PortTable />

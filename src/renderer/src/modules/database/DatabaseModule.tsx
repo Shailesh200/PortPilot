@@ -33,7 +33,10 @@ import {
   Table2,
   Trash2,
   X,
-  XCircle
+  XCircle,
+  GitBranch,
+  ArrowLeftRight,
+  Sparkles
 } from 'lucide-react'
 import type {
   DatabaseScreen,
@@ -75,6 +78,7 @@ import {
   extractSqlParams,
   parseCsv
 } from './sqlParams'
+import { dummyRowFromSchema } from './schemaDummy'
 
 const tabs: { id: DatabaseScreen; label: string }[] = [
   { id: 'connections', label: 'Connections' },
@@ -98,6 +102,12 @@ type QueryResult = {
   rows?: unknown[][]
   durationMs?: number
   error?: string
+}
+
+function pingSql(engine: DbConnectionPublic['engine']): string | null {
+  if (engine === 'mongodb') return null
+  if (engine === 'redis') return 'PING'
+  return 'SELECT 1'
 }
 
 export function DatabaseModule() {
@@ -126,6 +136,9 @@ export function DatabaseModule() {
 
   const [connections, setConnections] = useState<DbConnectionPublic[]>([])
   const [connectionsLoaded, setConnectionsLoaded] = useState(false)
+  const [pings, setPings] = useState<
+    Record<string, { ok: boolean; ms: number }>
+  >({})
   const [connStatus, setConnStatus] = useState<
     'disconnected' | 'connecting' | 'connected' | 'failed'
   >('disconnected')
@@ -375,6 +388,30 @@ export function DatabaseModule() {
     }
     setConnStatus(connectedIds.has(activeId) ? 'connected' : 'disconnected')
   }, [activeId, connectedIds])
+
+  useEffect(() => {
+    let cancelled = false
+    const tick = async () => {
+      const live = [...connectedIds]
+      if (live.length === 0) return
+      const next: Record<string, { ok: boolean; ms: number }> = {}
+      for (const id of live) {
+        const engine = connections.find((c) => c.id === id)?.engine
+        const sql = engine ? pingSql(engine) : null
+        if (!sql) continue
+        const r = await window.api.dbQuery(id, sql)
+        if (cancelled) return
+        next[id] = { ok: r.ok, ms: Math.round(r.durationMs || 0) }
+      }
+      if (!cancelled) setPings((prev) => ({ ...prev, ...next }))
+    }
+    void tick()
+    const t = window.setInterval(() => void tick(), 20_000)
+    return () => {
+      cancelled = true
+      window.clearInterval(t)
+    }
+  }, [connectedIds, connections])
 
   const filteredConnections = useMemo(() => {
     const q = connQuery.trim().toLowerCase()
@@ -784,6 +821,7 @@ export function DatabaseModule() {
             setConnQuery={setConnQuery}
             activeId={draftingNew ? undefined : activeId}
             connectedIds={connectedIds}
+            pings={pings}
             accessById={accessById}
             form={form}
             setForm={setForm}
@@ -1059,6 +1097,60 @@ export function DatabaseModule() {
               })
               void loadTableData(selectedTable, 0)
             }}
+            onSeed={async () => {
+              if (!activeId || !selectedTable || !tableSchema) {
+                addToast({
+                  type: 'warning',
+                  title: 'Select a table',
+                  message: 'Schema is needed to seed dummy rows'
+                })
+                return
+              }
+              if (activeConn?.readOnly) {
+                addToast({ type: 'warning', title: 'Read-only connection' })
+                return
+              }
+              const dummy = dummyRowFromSchema(tableSchema, Date.now() % 1000)
+              if (dummy.columns.length === 0) {
+                addToast({
+                  type: 'warning',
+                  title: 'Nothing to seed',
+                  message: 'All columns look auto-generated'
+                })
+                return
+              }
+              const r = await window.api.dbInsertRow(activeId, {
+                table: selectedTable,
+                columns: dummy.columns,
+                values: dummy.values
+              })
+              if (!r.ok) {
+                addToast({
+                  type: 'error',
+                  title: 'Seed failed',
+                  message: r.error
+                })
+                return
+              }
+              addToast({ type: 'success', title: 'Dummy row inserted' })
+              void loadTableData(selectedTable, 0)
+            }}
+            onOpenConverter={() => {
+              if (!tableResult) return
+              const json = JSON.stringify(
+                (tableResult.rows || []).map((row) =>
+                  Object.fromEntries(
+                    (tableResult.columns || []).map((c, i) => [c, row[i]])
+                  )
+                ),
+                null,
+                2
+              )
+              navigateWithPayload(
+                { module: 'text', screen: 'format-converter' },
+                json
+              )
+            }}
             canEdit={
               !!activeConn &&
               !activeConn.readOnly &&
@@ -1201,6 +1293,7 @@ function ConnectionsScreen({
   setConnQuery,
   activeId,
   connectedIds,
+  pings,
   accessById,
   form,
   setForm,
@@ -1221,6 +1314,7 @@ function ConnectionsScreen({
   setConnQuery: (v: string) => void
   activeId?: string
   connectedIds: Set<string>
+  pings: Record<string, { ok: boolean; ms: number }>
   accessById: Record<string, DbAccessInfo>
   form: ReturnType<typeof emptyConnectionForm>
   setForm: (f: ReturnType<typeof emptyConnectionForm>) => void
@@ -1237,6 +1331,34 @@ function ConnectionsScreen({
   onBrowseSshKey: () => void
 }) {
   const editing = !!form.id
+  const [diffId, setDiffId] = useState('')
+  const [diffBusy, setDiffBusy] = useState(false)
+  const [diffResult, setDiffResult] = useState<{
+    onlyA: string[]
+    onlyB: string[]
+    both: number
+  } | null>(null)
+
+  const runSchemaDiff = async () => {
+    if (!form.id || !diffId) return
+    setDiffBusy(true)
+    const [a, b] = await Promise.all([
+      window.api.dbTables(form.id),
+      window.api.dbTables(diffId)
+    ])
+    setDiffBusy(false)
+    if (!a.ok || !b.ok) {
+      setDiffResult(null)
+      return
+    }
+    const setA = new Set(a.tables || [])
+    const setB = new Set(b.tables || [])
+    setDiffResult({
+      onlyA: (a.tables || []).filter((t) => !setB.has(t)),
+      onlyB: (b.tables || []).filter((t) => !setA.has(t)),
+      both: (a.tables || []).filter((t) => setB.has(t)).length
+    })
+  }
 
   return (
     <div className="flex min-h-0 flex-1 overflow-hidden">
@@ -1274,6 +1396,7 @@ function ConnectionsScreen({
             connections.map((c) => {
               const selected = activeId === c.id && editing
               const connected = connectedIds.has(c.id)
+              const ping = pings[c.id]
               return (
                 <button
                   key={c.id}
@@ -1302,7 +1425,15 @@ function ConnectionsScreen({
                         title={ENGINE_FULL[c.engine]}
                       />
                     </div>
-                    <StatusDot tone={connected ? 'connected' : 'idle'} />
+                    <StatusDot
+                      tone={
+                        !connected
+                          ? 'idle'
+                          : ping && !ping.ok
+                            ? 'error'
+                            : 'connected'
+                      }
+                    />
                   </div>
                   <div className="min-w-0 flex-1">
                     <div className="flex items-center gap-2">
@@ -1328,6 +1459,7 @@ function ConnectionsScreen({
                     <div className="mt-0.5 truncate font-mono text-[11px] text-text-muted">
                       {c.sshEnabled ? 'SSH · ' : ''}
                       {connectionEndpoint(c)}
+                      {connected && ping ? ` · ${ping.ms}ms` : ''}
                     </div>
                   </div>
                 </button>
@@ -1852,6 +1984,55 @@ function ConnectionsScreen({
                   />
                 </div>
               )}
+              {editing && connections.length > 1 && (
+                <div className="space-y-2 border-t border-border-subtle pt-4">
+                  <FieldLabel>Schema diff</FieldLabel>
+                  <p className="text-[11px] text-text-muted">
+                    Compare table lists with another connection (both must be connected).
+                  </p>
+                  <div className="flex items-center gap-2">
+                    <select
+                      value={diffId}
+                      onChange={(e) => setDiffId(e.target.value)}
+                      className="h-8 flex-1 rounded-md border border-border-strong bg-bg-elevated px-2 text-[12px] text-text-primary"
+                    >
+                      <option value="">Choose connection…</option>
+                      {connections
+                        .filter((c) => c.id !== form.id)
+                        .map((c) => (
+                          <option key={c.id} value={c.id}>
+                            {c.name}
+                          </option>
+                        ))}
+                    </select>
+                    <ToolButton
+                      disabled={!diffId || diffBusy}
+                      onClick={() => void runSchemaDiff()}
+                    >
+                      Compare
+                    </ToolButton>
+                  </div>
+                  {diffResult && (
+                    <div className="rounded-lg border border-border-subtle bg-bg-elevated p-2 font-mono text-[11px] text-text-secondary">
+                      <p>{diffResult.both} tables in both</p>
+                      <p>Only here: {diffResult.onlyA.length || 'none'}</p>
+                      {diffResult.onlyA.slice(0, 8).map((t) => (
+                        <p key={`a-${t}`} className="truncate text-danger">
+                          − {t}
+                        </p>
+                      ))}
+                      <p className="mt-1">
+                        Only there: {diffResult.onlyB.length || 'none'}
+                      </p>
+                      {diffResult.onlyB.slice(0, 8).map((t) => (
+                        <p key={`b-${t}`} className="truncate text-success">
+                          + {t}
+                        </p>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
           </div>
 
@@ -1917,6 +2098,8 @@ function TableBrowserScreen({
   onFollowFkValue,
   onCellCommit,
   onInsertRow,
+  onSeed,
+  onOpenConverter,
   canEdit,
   onNeedConnection
 }: {
@@ -1961,14 +2144,44 @@ function TableBrowserScreen({
   ) => void
   onCellCommit: (rowIndex: number, colIndex: number, value: string) => void
   onInsertRow: () => void
+  onSeed: () => void
+  onOpenConverter: () => void
   canEdit: boolean
   onNeedConnection: () => void
 }) {
   const [treeOpen, setTreeOpen] = useState(true)
   const [exportOpen, setExportOpen] = useState(false)
   const [openSchemas, setOpenSchemas] = useState<Record<string, boolean>>({})
+  const [relationOpen, setRelationOpen] = useState(false)
+  const [relationEdges, setRelationEdges] = useState<
+    { from: string; column: string; to: string; refColumn: string }[]
+  >([])
+  const [relationBusy, setRelationBusy] = useState(false)
   const csvInputRef = useRef<HTMLInputElement>(null)
   const isRedis = activeConn?.engine === 'redis'
+
+  const loadRelationMap = async () => {
+    if (!activeConn) return
+    setRelationBusy(true)
+    setRelationOpen(true)
+    const objs = treeObjects.filter((o) => o.kind !== 'view').slice(0, 40)
+    const edges: { from: string; column: string; to: string; refColumn: string }[] =
+      []
+    for (const obj of objs) {
+      const r = await window.api.dbTableSchema(activeConn.id, obj.qualified)
+      if (!r.ok || !r.schema) continue
+      for (const fk of r.schema.foreignKeys) {
+        edges.push({
+          from: obj.qualified,
+          column: fk.column,
+          to: fk.refTable,
+          refColumn: fk.refColumn
+        })
+      }
+    }
+    setRelationEdges(edges)
+    setRelationBusy(false)
+  }
 
   const schemaGroups = useMemo(() => {
     const map = new Map<string, DbTreeObject[]>()
@@ -2008,7 +2221,7 @@ function TableBrowserScreen({
   }
 
   return (
-    <div className="flex min-h-0 flex-1 overflow-hidden">
+    <div className="relative flex min-h-0 flex-1 overflow-hidden">
       <aside className="flex w-[260px] flex-shrink-0 flex-col border-r border-border-subtle bg-bg-surface">
         <div className="flex items-center gap-2 border-b border-border-subtle p-3">
           <span
@@ -2199,6 +2412,21 @@ function TableBrowserScreen({
                 Insert
               </ToolButton>
             )}
+            {canEdit && !isRedis && (
+              <ToolButton disabled={!selectedTable || !schema || busy} onClick={onSeed}>
+                <Sparkles className="h-3.5 w-3.5" />
+                Seed
+              </ToolButton>
+            )}
+            {!isRedis && (
+            <ToolButton
+              disabled={!treeObjects.length || busy || !connected}
+              onClick={() => void loadRelationMap()}
+            >
+              <GitBranch className="h-3.5 w-3.5" />
+              Relations
+            </ToolButton>
+            )}
             {canEdit && !isRedis && selectedTable && (
               <>
                 <input
@@ -2244,7 +2472,8 @@ function TableBrowserScreen({
                     [
                       ['csv', 'CSV', FileSpreadsheet],
                       ['json', 'JSON', FileJson],
-                      ['sql', 'SQL INSERT', FileCode2]
+                      ['sql', 'SQL INSERT', FileCode2],
+                      ['converter', 'Format Converter', ArrowLeftRight]
                     ] as const
                   ).map(([fmt, label, Icon]) => (
                     <button
@@ -2252,7 +2481,8 @@ function TableBrowserScreen({
                       type="button"
                       className="flex w-full items-center gap-2 px-3 py-2 text-left text-[12px] text-text-secondary hover:bg-bg-hover hover:text-text-primary"
                       onClick={() => {
-                        onExport(fmt)
+                        if (fmt === 'converter') onOpenConverter()
+                        else onExport(fmt)
                         setExportOpen(false)
                       }}
                     >
@@ -2442,6 +2672,52 @@ function TableBrowserScreen({
           )}
         </div>
       </div>
+      {relationOpen && (
+        <div className="absolute inset-0 z-30 flex items-end justify-end bg-black/40 p-6">
+          <div className="flex max-h-[70vh] w-full max-w-lg flex-col rounded-xl border border-border-subtle bg-bg-surface shadow-2xl">
+            <div className="flex items-center justify-between border-b border-border-subtle px-4 py-3">
+              <div>
+                <p className="text-[13px] font-semibold text-text-primary">
+                  Schema relations
+                </p>
+                <p className="text-[11px] text-text-muted">
+                  Foreign keys across tables (first 40)
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setRelationOpen(false)}
+                className="rounded-md p-1 text-text-muted hover:bg-bg-hover hover:text-text-primary"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+            <div className="flex-1 overflow-auto p-3 font-mono text-[12px]">
+              {relationBusy ? (
+                <p className="text-text-muted">Reading schemas…</p>
+              ) : relationEdges.length === 0 ? (
+                <p className="text-text-muted">No foreign keys found</p>
+              ) : (
+                <div className="space-y-1">
+                  {relationEdges.map((e, i) => (
+                    <button
+                      key={`${e.from}-${e.column}-${i}`}
+                      type="button"
+                      className="block w-full rounded px-2 py-1 text-left text-text-secondary hover:bg-bg-hover hover:text-accent"
+                      onClick={() => {
+                        onSelectTable(e.from)
+                        setRelationOpen(false)
+                      }}
+                    >
+                      {e.from}.{e.column} → {e.to}.{e.refColumn}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

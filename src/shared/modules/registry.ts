@@ -22,28 +22,48 @@ export const TEXT_TOOLS: {
 }[] = [
   {
     id: 'json-formatter',
-    label: 'JSON Formatter',
-    description: 'Clean and beautify messy JSON data'
+    label: 'Formatter',
+    description: 'Pretty-print JSON, HTML, CSS, JavaScript, and logs'
   },
   {
     id: 'json-diff',
-    label: 'JSON Diff',
-    description: 'Compare two JSON files and see differences'
+    label: 'Diff',
+    description: 'Compare JSON or plain text side by side'
   },
   {
     id: 'js-console',
-    label: 'JS Console',
-    description: 'Run JavaScript like a browser console'
-  },
-  {
-    id: 'text-diff',
-    label: 'Text Diff',
-    description: 'Find changes between two blocks of text'
+    label: 'JS Sandbox',
+    description: 'HTML, CSS, and JS with a live preview'
   },
   {
     id: 'format-converter',
     label: 'Format Converter',
     description: 'Convert JSON, YAML, CSV, Markdown, HTML, PDF, and more'
+  },
+  {
+    id: 'encode-decode',
+    label: 'Encode / Decode',
+    description: 'Base64, URL, HTML entities, hex, and Unicode escapes'
+  },
+  {
+    id: 'jwt-inspector',
+    label: 'JWT Inspector',
+    description: 'Decode header and payload, check exp / iat / nbf'
+  },
+  {
+    id: 'url-curl',
+    label: 'URL + cURL',
+    description: 'Parse a URL or curl command, copy as fetch'
+  },
+  {
+    id: 'regex',
+    label: 'Regex Playground',
+    description: 'Explain, highlight, and test patterns against many strings'
+  },
+  {
+    id: 'time',
+    label: 'Time bench',
+    description: 'UTC, IST, local, EDT, epoch, and ISO conversions'
   },
   {
     id: 'clipboard',
@@ -97,14 +117,12 @@ export const MODULE_REGISTRY: ModuleDefinition[] = [
     label: 'Settings',
     shortcut: '⌘,',
     order: 99,
-    description: 'App preferences and profiles',
+    description: 'App preferences',
     screens: [
       { id: 'general', label: 'General' },
       { id: 'appearance', label: 'Appearance' },
       { id: 'shortcuts', label: 'Shortcuts' },
-      { id: 'notifications', label: 'Notifications' },
-      { id: 'safety', label: 'Safety' },
-      { id: 'profiles', label: 'Profiles' }
+      { id: 'safety', label: 'Safety' }
     ]
   }
 ]

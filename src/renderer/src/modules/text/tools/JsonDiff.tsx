@@ -1,25 +1,20 @@
 import {
-  useCallback,
   useEffect,
   useMemo,
   useRef,
   useState,
-  type MouseEvent as ReactMouseEvent,
   type ReactNode
 } from 'react'
 import type { Change } from 'diff'
 import type { DiffResult } from 'json-diff-kit'
 import {
   ArrowLeftRight,
-  ChevronDown,
-  ChevronUp,
-  ClipboardPaste,
   Eraser,
-  GitCompareArrows,
-  Search
+  GitCompareArrows
 } from 'lucide-react'
 import { clsx } from 'clsx'
 import { WorkspaceToolbar } from '../../../shell/WorkspaceToolbar'
+import { SplitPane } from '../../../shell/SplitPane'
 import { useTextToolSessionStore } from '../../../stores/textToolSessionStore'
 import {
   ToolBadge,
@@ -30,6 +25,12 @@ import {
   ToolToggle,
   ToolToolbar
 } from './toolUi'
+import {
+  DiffNavControls,
+  ToolFindBar,
+  ToolMonoTextarea,
+  readClipboardText
+} from './toolChrome'
 import {
   escapeRegExp,
   formatJson,
@@ -232,7 +233,11 @@ function LineDiffView({
   )
 }
 
-export function JsonDiff() {
+export function JsonDiff({
+  leadingControls
+}: {
+  leadingControls?: ReactNode
+} = {}) {
   const saved = useTextToolSessionStore.getState().jsonDiff
   const patchSession = useTextToolSessionStore((s) => s.patchJsonDiff)
 
@@ -245,14 +250,11 @@ export function JsonDiff() {
   const [showSources, setShowSources] = useState(saved.showSources)
   const [findQuery, setFindQuery] = useState('')
   const [findIndex, setFindIndex] = useState(0)
+  const [findTick, setFindTick] = useState(0)
   const [diffNavIndex, setDiffNavIndex] = useState(0)
   const [leftPct, setLeftPct] = useState(saved.leftPct)
   const [sourcesPct, setSourcesPct] = useState(saved.sourcesPct)
   const [diffReady, setDiffReady] = useState(false)
-  const hSplitRef = useRef<HTMLDivElement>(null)
-  const vSplitRef = useRef<HTMLDivElement>(null)
-  const draggingH = useRef(false)
-  const draggingV = useRef(false)
   const differRef = useRef<InstanceType<
     typeof import('json-diff-kit').Differ
   > | null>(null)
@@ -371,6 +373,7 @@ export function JsonDiff() {
 
   useEffect(() => {
     setFindIndex(0)
+    setFindTick((t) => t + 1)
   }, [findQuery, leftRaw, rightRaw, run])
 
   useEffect(() => {
@@ -404,7 +407,7 @@ export function JsonDiff() {
       cancelled = true
       cancelAnimationFrame(raf)
     }
-  }, [findInResult, run, findQuery, findIndex])
+  }, [findInResult, run, findQuery, findIndex, findTick])
 
   // Select match in source textareas when searching before a diff
   useEffect(() => {
@@ -424,7 +427,7 @@ export function JsonDiff() {
       el.scrollTop = Math.max(0, (line - 4) * 24)
     }, 0)
     return () => window.clearTimeout(timer)
-  }, [activeSourceFind, showSources, findIndex])
+  }, [activeSourceFind, showSources, findIndex, findTick])
 
   // Scroll Viewer / line view to active difference
   useEffect(() => {
@@ -461,6 +464,7 @@ export function JsonDiff() {
   const goFind = (dir: 1 | -1) => {
     if (findCount === 0) return
     setFindIndex((i) => (i + dir + findCount) % findCount)
+    setFindTick((t) => t + 1)
     if (!findInResult && !showSources) setShowSources(true)
   }
 
@@ -539,17 +543,13 @@ export function JsonDiff() {
   }
 
   const pasteInto = async (side: Side) => {
-    try {
-      const text = await navigator.clipboard.readText()
-      if (!text) return
-      if (side === 'left') setLeftRaw(text)
-      else setRightRaw(text)
-      setRun(null)
-      setError(null)
-      setShowSources(true)
-    } catch {
-      /* denied */
-    }
+    const text = await readClipboardText()
+    if (!text) return
+    if (side === 'left') setLeftRaw(text)
+    else setRightRaw(text)
+    setRun(null)
+    setError(null)
+    setShowSources(true)
   }
 
   const onEdit = (side: Side, value: string) => {
@@ -566,67 +566,6 @@ export function JsonDiff() {
     run.kind === 'semantic' &&
     (run.leftPretty !== leftRaw || run.rightPretty !== rightRaw)
 
-  const onHMove = useCallback((clientX: number) => {
-    const el = hSplitRef.current
-    if (!el) return
-    const rect = el.getBoundingClientRect()
-    if (rect.width <= 0) return
-    const pct = ((clientX - rect.left) / rect.width) * 100
-    setLeftPct(Math.min(MAX_LEFT_PCT, Math.max(MIN_LEFT_PCT, pct)))
-  }, [])
-
-  const onVMove = useCallback((clientY: number) => {
-    const el = vSplitRef.current
-    if (!el) return
-    const rect = el.getBoundingClientRect()
-    if (rect.height <= 0) return
-    const pct = ((clientY - rect.top) / rect.height) * 100
-    setSourcesPct(Math.min(MAX_SOURCES_PCT, Math.max(MIN_SOURCES_PCT, pct)))
-  }, [])
-
-  useEffect(() => {
-    const onMove = (e: MouseEvent) => {
-      if (draggingH.current) {
-        e.preventDefault()
-        onHMove(e.clientX)
-      }
-      if (draggingV.current) {
-        e.preventDefault()
-        onVMove(e.clientY)
-      }
-    }
-    const onUp = () => {
-      if (draggingH.current || draggingV.current) {
-        draggingH.current = false
-        draggingV.current = false
-        document.body.style.cursor = ''
-        document.body.style.userSelect = ''
-      }
-    }
-    window.addEventListener('mousemove', onMove)
-    window.addEventListener('mouseup', onUp)
-    return () => {
-      window.removeEventListener('mousemove', onMove)
-      window.removeEventListener('mouseup', onUp)
-    }
-  }, [onHMove, onVMove])
-
-  const startHDrag = (e: ReactMouseEvent) => {
-    e.preventDefault()
-    draggingH.current = true
-    document.body.style.cursor = 'col-resize'
-    document.body.style.userSelect = 'none'
-    onHMove(e.clientX)
-  }
-
-  const startVDrag = (e: ReactMouseEvent) => {
-    e.preventDefault()
-    draggingV.current = true
-    document.body.style.cursor = 'row-resize'
-    document.body.style.userSelect = 'none'
-    onVMove(e.clientY)
-  }
-
   const renderSourcePane = (side: Side) => {
     const raw = side === 'left' ? leftRaw : rightRaw
     const title = side === 'left' ? 'Original' : 'Changed'
@@ -637,18 +576,15 @@ export function JsonDiff() {
         title={title}
         actions={
           <ToolButton variant="ghost" onClick={() => void pasteInto(side)}>
-            <ClipboardPaste className="w-3.5 h-3.5" />
             Paste
           </ToolButton>
         }
         bodyClassName="p-0 overflow-hidden flex flex-col h-full min-h-0"
       >
-        <textarea
+        <ToolMonoTextarea
           id={id}
-          className="flex-1 w-full min-h-0 resize-none bg-transparent px-4 py-3 text-[13px] leading-6 font-mono text-text-primary placeholder:text-text-muted focus:outline-none"
           value={raw}
           onChange={(e) => onEdit(side, e.target.value)}
-          spellCheck={false}
           placeholder={
             side === 'left'
               ? 'Paste or type original JSON…'
@@ -676,7 +612,8 @@ export function JsonDiff() {
     <ToolFullscreenShell>
       <WorkspaceToolbar>
         <ToolToolbar className="mb-0">
-          {/* Left cluster */}
+          {leadingControls}
+          {leadingControls ? <ToolDivider /> : null}
           <ToolSeg
             options={['semantic', 'line'] as const}
             value={mode}
@@ -718,74 +655,28 @@ export function JsonDiff() {
           {error && <ToolBadge tone="err">Invalid JSON</ToolBadge>}
           {run?.identical && <ToolBadge tone="ok">Identical</ToolBadge>}
           {run && !run.identical && diffCount > 0 && (
-            <span className="inline-flex items-center gap-0.5">
-              <ToolBadge tone="warn">{diffLabel} changed</ToolBadge>
-              <button
-                type="button"
-                title="Previous difference"
-                onClick={() => goDiff(-1)}
-                className="p-1.5 rounded-full text-text-secondary hover:text-text-primary hover:bg-bg-elevated"
-              >
-                <ChevronUp className="w-3.5 h-3.5" />
-              </button>
-              <button
-                type="button"
-                title="Next difference"
-                onClick={() => goDiff(1)}
-                className="p-1.5 rounded-full text-text-secondary hover:text-text-primary hover:bg-bg-elevated"
-              >
-                <ChevronDown className="w-3.5 h-3.5" />
-              </button>
-            </span>
+            <DiffNavControls
+              label={diffLabel}
+              onPrev={() => goDiff(-1)}
+              onNext={() => goDiff(1)}
+              prevTitle="Previous difference"
+              nextTitle="Next difference"
+            />
           )}
           {stale && <ToolBadge tone="warn">Edited — run again</ToolBadge>}
 
           {/* Right cluster: Search → Clear → Edit sources → Find Difference */}
           <span className="ml-auto flex items-center gap-1.5">
-            <div className="relative flex items-center">
-              <Search className="absolute left-2.5 w-3.5 h-3.5 text-text-muted pointer-events-none" />
-              <input
-                type="search"
-                value={findQuery}
-                onChange={(e) => setFindQuery(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter' || e.key === 'ArrowDown') {
-                    e.preventDefault()
-                    if (e.key === 'Enter' && e.shiftKey) goFind(-1)
-                    else goFind(1)
-                  } else if (e.key === 'ArrowUp') {
-                    e.preventDefault()
-                    goFind(-1)
-                  }
-                }}
-                placeholder="Find…"
-                disabled={bothEmpty}
-                className="w-56 bg-bg-elevated border border-border-strong rounded-full pl-8 pr-14 py-1.5 text-[12.5px] text-text-primary placeholder:text-text-muted focus:outline-none focus:border-accent disabled:opacity-40"
-              />
-              {findLabel && (
-                <span className="absolute right-2 text-[10px] text-text-muted tabular-nums pointer-events-none">
-                  {findLabel}
-                </span>
-              )}
-            </div>
-            <button
-              type="button"
-              title="Previous match"
-              disabled={findCount === 0}
-              onClick={() => goFind(-1)}
-              className="p-1.5 rounded-full text-text-secondary hover:text-text-primary hover:bg-bg-elevated disabled:opacity-30"
-            >
-              <ChevronUp className="w-3.5 h-3.5" />
-            </button>
-            <button
-              type="button"
-              title="Next match"
-              disabled={findCount === 0}
-              onClick={() => goFind(1)}
-              className="p-1.5 rounded-full text-text-secondary hover:text-text-primary hover:bg-bg-elevated disabled:opacity-30"
-            >
-              <ChevronDown className="w-3.5 h-3.5" />
-            </button>
+            <ToolFindBar
+              value={findQuery}
+              onChange={setFindQuery}
+              disabled={bothEmpty}
+              label={findLabel}
+              onPrev={() => goFind(-1)}
+              onNext={() => goFind(1)}
+              matchCount={findCount}
+              widthClass="w-56"
+            />
             <ToolButton
               variant="ghost"
               onClick={clearAll}
@@ -833,64 +724,22 @@ export function JsonDiff() {
         <p className="flex-shrink-0 text-[12px] text-danger px-1">{error}</p>
       )}
 
-      <div
-        ref={vSplitRef}
-        className="flex-1 min-h-0 flex flex-col"
-      >
-        {showSources && (
-          <>
-            <div
-              ref={hSplitRef}
-              className="min-h-0 flex flex-col lg:flex-row"
-              style={
-                run
-                  ? { height: `${sourcesPct}%`, flexShrink: 0 }
-                  : { flex: 1 }
-              }
-            >
-              <div
-                className="min-h-0 h-1/2 lg:h-full w-full flex flex-col flex-shrink-0 lg:w-[var(--split-left)]"
-                style={{ ['--split-left' as string]: `${leftPct}%` }}
-              >
-                {renderSourcePane('left')}
-              </div>
-
-              <div
-                role="separator"
-                aria-orientation="vertical"
-                aria-valuenow={Math.round(leftPct)}
-                aria-valuemin={MIN_LEFT_PCT}
-                aria-valuemax={MAX_LEFT_PCT}
-                title="Drag to resize"
-                onMouseDown={startHDrag}
-                className="hidden lg:flex w-2 flex-shrink-0 cursor-col-resize items-stretch justify-center group relative mx-0.5"
-              >
-                <div className="w-px bg-border-strong group-hover:bg-accent group-active:bg-accent transition-colors my-1" />
-                <div className="absolute inset-y-0 -left-1 -right-1" />
-              </div>
-
-              <div className="min-h-0 h-1/2 lg:h-full flex-1 flex flex-col min-w-0">
-                {renderSourcePane('right')}
-              </div>
-            </div>
-
-            {run && (
-              <div
-                role="separator"
-                aria-orientation="horizontal"
-                title="Drag to resize"
-                onMouseDown={startVDrag}
-                className="h-2 flex-shrink-0 cursor-row-resize flex items-center justify-center group relative"
-              >
-                <div className="h-px w-full bg-border-strong group-hover:bg-accent group-active:bg-accent transition-colors mx-8" />
-                <div className="absolute inset-x-0 -top-1 -bottom-1" />
-              </div>
-            )}
-          </>
-        )}
-
-        {run && (
-          <div className="flex-1 min-h-0 flex flex-col">
+      {(() => {
+        const sources = (
+          <SplitPane
+            axis="x"
+            value={leftPct}
+            onChange={setLeftPct}
+            min={MIN_LEFT_PCT}
+            max={MAX_LEFT_PCT}
+            className="h-full"
+          >
+            {renderSourcePane('left')}
+            {renderSourcePane('right')}
+          </SplitPane>
+        )
+        const resultPane = run ? (
+          <div className="h-full min-h-0 flex flex-col">
             {run.kind === 'semantic' ? (
               <div
                 id={VIEWER_SCROLL_ID}
@@ -917,14 +766,35 @@ export function JsonDiff() {
               </div>
             )}
           </div>
-        )}
+        ) : null
 
-        {!run && !showSources && (
+        if (showSources && run && resultPane) {
+          return (
+            <SplitPane
+              axis="y"
+              value={sourcesPct}
+              onChange={setSourcesPct}
+              min={MIN_SOURCES_PCT}
+              max={MAX_SOURCES_PCT}
+              className="flex-1 min-h-0"
+            >
+              {sources}
+              {resultPane}
+            </SplitPane>
+          )
+        }
+        if (showSources) {
+          return <div className="flex-1 min-h-0">{sources}</div>
+        }
+        if (resultPane) {
+          return <div className="flex-1 min-h-0">{resultPane}</div>
+        }
+        return (
           <div className="flex-1 flex items-center justify-center text-[13px] text-text-muted">
             Paste JSON on both sides, then Find Difference
           </div>
-        )}
-      </div>
+        )
+      })()}
 
       {run && (
         <p className="flex-shrink-0 text-[11px] text-text-muted text-center">

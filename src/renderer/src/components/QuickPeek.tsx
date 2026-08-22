@@ -14,6 +14,27 @@ import {
   User
 } from 'lucide-react'
 
+import { OccupancySparkline } from './OccupancySparkline'
+import { formatUptime } from '../lib/portOccupancy'
+
+function QuickPeekOccupancy({ port }: { port: number }) {
+  const occupancy = usePortStore((s) => s.occupancy[port])
+  const upMs = occupancy?.upSince ? Date.now() - occupancy.upSince : 0
+  return (
+    <div className="bg-bg-card rounded-lg p-3 border border-border-subtle">
+      <div className="flex items-center justify-between gap-3">
+        <div>
+          <span className="text-xs text-text-muted">Occupancy</span>
+          <p className="text-sm font-mono text-text-primary mt-0.5">
+            {occupancy?.upSince ? `Up ${formatUptime(upMs)}` : '—'}
+          </p>
+        </div>
+        <OccupancySparkline occupancy={occupancy} />
+      </div>
+    </div>
+  )
+}
+
 export function QuickPeek() {
   const processDetails = usePortStore((s) => s.processDetails)
   const fetchProcessDetails = usePortStore((s) => s.fetchProcessDetails)
@@ -118,6 +139,8 @@ export function QuickPeek() {
             </div>
           </div>
 
+          {port && <QuickPeekOccupancy port={port.port} />}
+
           {details?.fullCommand && (
             <div className="bg-bg-card rounded-lg p-3 border border-border-subtle">
               <span className="text-xs text-text-muted">Full Command</span>
@@ -127,21 +150,25 @@ export function QuickPeek() {
             </div>
           )}
 
-          {details?.children && details.children.length > 0 && (
+          {(details?.ppid || (details?.children && details.children.length > 0)) && (
             <div className="bg-bg-card rounded-lg p-3 border border-border-subtle">
-              <span className="text-xs text-text-muted">
-                Child Processes ({details.children.length})
-              </span>
-              <div className="flex flex-wrap gap-1 mt-1">
-                {details.children.map((cpid) => (
-                  <span
-                    key={cpid}
-                    className="px-1.5 py-0.5 bg-bg-elevated rounded text-xs font-mono text-text-secondary"
-                  >
-                    {cpid}
-                  </span>
-                ))}
-              </div>
+              <span className="text-xs text-text-muted">Process tree</span>
+              <p className="text-xs font-mono text-text-secondary mt-1">
+                {details.ppid ? `ppid ${details.ppid}` : 'ppid —'}
+                {details.pid ? ` → pid ${details.pid}` : ''}
+              </p>
+              {details.children && details.children.length > 0 && (
+                <div className="flex flex-wrap gap-1 mt-2">
+                  {details.children.map((cpid) => (
+                    <span
+                      key={cpid}
+                      className="px-1.5 py-0.5 bg-bg-elevated rounded text-xs font-mono text-text-secondary"
+                    >
+                      child {cpid}
+                    </span>
+                  ))}
+                </div>
+              )}
             </div>
           )}
         </div>

@@ -43,6 +43,20 @@
     -moz-osx-font-smoothing: grayscale;
   }
 
+  body.is-split-dragging iframe {
+    pointer-events: none;
+  }
+
+  body.is-split-dragging-x,
+  body.is-split-dragging-x * {
+    cursor: col-resize !important;
+  }
+
+  body.is-split-dragging-y,
+  body.is-split-dragging-y * {
+    cursor: row-resize !important;
+  }
+
   ::-webkit-scrollbar {
     width: 6px;
     height: 6px;

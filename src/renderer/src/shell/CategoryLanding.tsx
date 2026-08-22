@@ -4,7 +4,7 @@ import {
   type ComponentType,
   type CSSProperties
 } from 'react'
-import { ArrowUpRight, Search } from 'lucide-react'
+import { ArrowUpRight, Pin, Search } from 'lucide-react'
 import { clsx } from 'clsx'
 
 export interface CategoryLandingItem {
@@ -12,6 +12,7 @@ export interface CategoryLandingItem {
   label: string
   description: string
   icon?: ComponentType<{ className?: string; style?: CSSProperties }>
+  pinned?: boolean
 }
 
 const DEFAULT_ACCENT = '#4F8CFF'
@@ -21,6 +22,7 @@ export function CategoryLanding({
   subtitle,
   items,
   onSelect,
+  onPin,
   accent = DEFAULT_ACCENT,
   searchable = true
 }: {
@@ -28,6 +30,7 @@ export function CategoryLanding({
   subtitle: string
   items: CategoryLandingItem[]
   onSelect: (id: string) => void
+  onPin?: (id: string) => void
   /** Category tint for icon tiles (DevBench Text & Data = blue). */
   accent?: string
   searchable?: boolean
@@ -75,11 +78,14 @@ export function CategoryLanding({
                 type="button"
                 onClick={() => onSelect(item.id)}
                 className={clsx(
-                  'group relative flex min-h-[168px] flex-col items-start rounded-2xl border border-border-subtle bg-bg-card p-5 text-left',
+                  'group relative flex min-h-[168px] flex-col items-start rounded-2xl border bg-bg-card p-5 text-left',
                   'transition-all duration-200',
                   'hover:-translate-y-0.5 hover:border-border-strong hover:bg-bg-hover/70',
                   'hover:shadow-[0_12px_32px_-16px_rgba(0,0,0,0.55)]',
-                  'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--cat-accent)]'
+                  'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--cat-accent)]',
+                  item.pinned
+                    ? 'border-accent/40'
+                    : 'border-border-subtle'
                 )}
                 style={{ ['--cat-accent' as string]: accent }}
               >
@@ -97,10 +103,38 @@ export function CategoryLanding({
                       />
                     )}
                   </div>
-                  <ArrowUpRight
-                    className="h-4 w-4 text-text-muted opacity-0 transition-all group-hover:translate-x-0.5 group-hover:-translate-y-0.5 group-hover:opacity-100 group-hover:text-text-secondary"
-                    aria-hidden
-                  />
+                  <span className="flex items-center gap-1">
+                    {onPin && (
+                      <span
+                        role="button"
+                        tabIndex={0}
+                        title={item.pinned ? 'Unpin' : 'Pin to top'}
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          onPin(item.id)
+                        }}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter' || e.key === ' ') {
+                            e.preventDefault()
+                            e.stopPropagation()
+                            onPin(item.id)
+                          }
+                        }}
+                        className={clsx(
+                          'rounded-md p-1 transition-colors',
+                          item.pinned
+                            ? 'text-accent'
+                            : 'text-text-muted opacity-0 group-hover:opacity-100 hover:text-text-primary'
+                        )}
+                      >
+                        <Pin className="h-3.5 w-3.5" />
+                      </span>
+                    )}
+                    <ArrowUpRight
+                      className="h-4 w-4 text-text-muted opacity-0 transition-all group-hover:translate-x-0.5 group-hover:-translate-y-0.5 group-hover:opacity-100 group-hover:text-text-secondary"
+                      aria-hidden
+                    />
+                  </span>
                 </div>
                 <span className="text-[15px] font-semibold tracking-tight text-text-primary">
                   {item.label}

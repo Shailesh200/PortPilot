@@ -3,17 +3,8 @@
  * Prefer this module over direct Electron APIs in feature code so
  * platform concerns stay in one place.
  */
-export { scanPorts } from '../services/port-scanner'
-export {
-  getProcessDetails,
-  killProcess,
-  killProcesses,
-  openInBrowser,
-  openInTerminal,
-  openInVSCode,
-  restartProcess,
-  setAutoFocusTerminal
-} from '../services/process-manager'
+export { execFileSafe } from './exec-file-safe'
+export { writeJsonAtomic, writeJsonAtomicSilent } from './atomic-json'
 export {
   resolveResourcePath,
   resolveTrayIconPath,
@@ -30,7 +21,6 @@ export {
   getMacKeychainTrustPath
 } from './paths'
 export {
-  isSecureStorageAvailable,
   encryptSecret,
   decryptSecret,
   storedSecretUnreadable

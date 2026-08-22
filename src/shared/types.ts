@@ -14,10 +14,21 @@ export interface PortInfo {
   tags: string[]
   isSelected: boolean
   isCritical: boolean
+  /** OS / vendor daemon — hideable on the dashboard. Not the same as isCritical. */
+  isSystem: boolean
+  /** Listening server vs inbound TCP client connected to a local listener. */
+  role: 'listen' | 'connection'
+  peerAddress: string
+  peerPort: number
+  /** ESTABLISHED clients currently talking to this listener. */
+  connectionCount: number
+  /** Best-effort runtime tag: node, docker, postgres, … */
+  runtime: string
 }
 
 export interface ProcessDetails {
   pid: number
+  ppid: number
   command: string
   fullCommand: string
   user: string
@@ -45,6 +56,7 @@ export interface Profile {
   favoritePorts: number[]
   filters: Record<string, string>
   autoActions: Record<string, boolean>
+  workspace?: ProfileWorkspace
 }
 
 export interface Toast {
@@ -64,12 +76,31 @@ export interface AppSettings {
   confirmDestructive: boolean
   highlightCritical: boolean
   protectSystemPorts: boolean
+  hideSystemProcesses: boolean
   cpuThreshold: number
   memoryThreshold: number
   notifyPortChange: boolean
   notifyHighCpu: boolean
   notifyCrash: boolean
+  pinnedTextTools: TextToolId[]
+  regexLineByLine: boolean
+  jsPlaygroundAutoRun: boolean
+  waitOpenBrowser: boolean
+  autoUpdate: boolean
 }
+
+export type SafetySettings = Pick<
+  AppSettings,
+  | 'protectSystemPorts'
+  | 'confirmDestructive'
+  | 'autoFocusTerminal'
+  | 'hideSystemProcesses'
+>
+
+export type AlertSettings = Pick<
+  AppSettings,
+  'notifyPortChange' | 'notifyCrash' | 'autoOpenBrowser'
+>
 
 export type ModuleId =
   | 'ports'
@@ -85,7 +116,25 @@ export type TextToolId =
   | 'js-console'
   | 'text-diff'
   | 'format-converter'
+  | 'encode-decode'
+  | 'jwt-inspector'
+  | 'url-curl'
+  | 'regex'
+  | 'time'
   | 'clipboard'
+
+export type PortView = 'listen' | 'connections'
+
+export interface ProfileWorkspace {
+  hideSystemProcesses?: boolean
+  portView?: PortView
+  groupByProject?: boolean
+  textTool?: TextToolId
+  connectionId?: string
+  converterFrom?: string
+  converterTo?: string
+  openOnActivate?: 'ports' | 'text' | 'database'
+}
 
 export type DatabaseScreen =
   | 'connections'
@@ -121,246 +170,28 @@ export interface ProfilesPersistState {
   activeProfileId: string | null
 }
 
+export type UpdateStatus =
+  | 'idle'
+  | 'checking'
+  | 'available'
+  | 'downloading'
+  | 'downloaded'
+  | 'not-available'
+  | 'disabled'
+  | 'error'
+
 export interface UpdateInfo {
   version: string
-  status: 'available' | 'downloaded' | 'error'
+  currentVersion: string
+  status: UpdateStatus
   message?: string
+  percent?: number
+  /** False in unpackaged / MAS builds — check still works, install does not. */
+  canInstall: boolean
 }
 
-export interface IpcApi {
-  getPorts: () => Promise<PortInfo[]>
-  getProcessDetails: (pid: number) => Promise<ProcessDetails | null>
-  killProcess: (pid: number, force?: boolean) => Promise<boolean>
-  killProcesses: (pids: number[]) => Promise<{ pid: number; success: boolean }[]>
-  openInBrowser: (port: number) => Promise<void>
-  openInTerminal: (pid: number, projectPath?: string) => Promise<{
-    ok: boolean
-    method: 'focused-tab' | 'focused-app' | 'new-tab' | 'fallback' | 'failed'
-    app: string
-    message: string
-  }>
-  openInVSCode: (pid: number, projectPath?: string) => Promise<void>
-  restartProcess: (pid: number, projectPath?: string) => Promise<{
-    success: boolean
-    error?: string
-    hint?: string
-  }>
-  updatePollInterval: (intervalMs: number) => Promise<void>
-  updateGlobalShortcut: (shortcut: string) => Promise<boolean>
-  updateSafetySettings: (settings: {
-    protectSystemPorts: boolean
-    confirmDestructive: boolean
-    autoFocusTerminal: boolean
-  }) => Promise<void>
-  updateAlertSettings: (settings: {
-    notifyPortChange: boolean
-    notifyCrash: boolean
-    autoOpenBrowser: boolean
-  }) => Promise<void>
-  onAppToast: (
-    callback: (toast: {
-      type: 'success' | 'error' | 'warning' | 'info'
-      title: string
-      message?: string
-    }) => void
-  ) => () => void
-  loadProfiles: () => Promise<ProfilesPersistState>
-  saveProfiles: (state: ProfilesPersistState) => Promise<boolean>
-  getAppVersion: () => Promise<string>
-  eraseAllAppData: () => Promise<void>
-  quitAndInstall: () => Promise<void>
-  onPortsUpdate: (callback: (ports: PortInfo[]) => void) => () => void
-  onFocusSearch: (callback: () => void) => () => void
-  onProfilesChanged: (callback: () => void) => () => void
-  onOpenProfileCreator: (callback: () => void) => () => void
-  onNavigateTo: (callback: (nav: NavLocation) => void) => () => void
-  onUpdateStatus: (callback: (info: UpdateInfo) => void) => () => void
+export type { IpcApi } from './ipc'
 
-  // Clipboard
-  clipboardGetHistory: () => Promise<ClipboardItem[]>
-  clipboardSetCapture: (enabled: boolean) => Promise<boolean>
-  clipboardIsCaptureEnabled: () => Promise<boolean>
-  clipboardPin: (id: string, pinned: boolean) => Promise<ClipboardItem[]>
-  clipboardDelete: (id: string) => Promise<ClipboardItem[]>
-  clipboardClear: (keepPinned: boolean) => Promise<ClipboardItem[]>
-  clipboardWrite: (text: string) => Promise<void>
-  onClipboardUpdate: (callback: (items: ClipboardItem[]) => void) => () => void
-
-  // Database
-  dbListConnections: () => Promise<DbConnectionPublic[]>
-  dbListLive: () => Promise<string[]>
-  dbSaveConnection: (profile: DbConnectionInput) => Promise<DbConnectionPublic[]>
-  dbDeleteConnection: (id: string) => Promise<DbConnectionPublic[]>
-  dbConnect: (id: string) => Promise<{ ok: boolean; error?: string }>
-  dbDisconnect: (id: string) => Promise<void>
-  dbQuery: (
-    id: string,
-    sql: string,
-    opts?: { allowDestructive?: boolean }
-  ) => Promise<{
-    ok: boolean
-    columns?: string[]
-    rows?: unknown[][]
-    durationMs: number
-    error?: string
-    needsConfirm?: boolean
-  }>
-  dbTables: (
-    id: string
-  ) => Promise<{
-    ok: boolean
-    tables?: string[]
-    objects?: DbTreeObject[]
-    error?: string
-  }>
-  dbTableSchema: (
-    id: string,
-    table: string
-  ) => Promise<{ ok: boolean; schema?: DbTableSchema; error?: string }>
-  dbBrowseTable: (
-    id: string,
-    table: string,
-    opts: { where?: string; limit?: number; offset?: number }
-  ) => Promise<{
-    ok: boolean
-    columns?: string[]
-    rows?: unknown[][]
-    total?: number
-    durationMs: number
-    error?: string
-  }>
-  dbAnalyzeSql: (sql: string) => Promise<{
-    mutating: boolean
-    destructive: boolean
-    statements: number
-  }>
-  dbExplain: (
-    id: string,
-    sql: string,
-    analyze?: boolean
-  ) => Promise<{
-    ok: boolean
-    columns?: string[]
-    rows?: unknown[][]
-    durationMs: number
-    error?: string
-  }>
-  dbSavedQueries: (connectionId?: string) => Promise<DbSavedQuery[]>
-  dbSaveQuery: (input: {
-    id?: string
-    connectionId: string
-    label: string
-    sql: string
-  }) => Promise<DbSavedQuery[]>
-  dbDeleteSavedQuery: (id: string) => Promise<DbSavedQuery[]>
-  dbTableDdl: (
-    id: string,
-    table: string
-  ) => Promise<{ ok: boolean; ddl?: string; error?: string }>
-  dbUpdateCell: (
-    id: string,
-    input: {
-      table: string
-      pkColumn: string
-      pkValue: unknown
-      column: string
-      value: unknown
-    }
-  ) => Promise<{ ok: boolean; durationMs: number; error?: string }>
-  dbInsertRow: (
-    id: string,
-    input: { table: string; columns: string[]; values: unknown[] }
-  ) => Promise<{ ok: boolean; durationMs: number; error?: string }>
-  dbImportCsv: (
-    id: string,
-    input: {
-      table: string
-      columns: string[]
-      rows: unknown[][]
-      batchSize?: number
-    }
-  ) => Promise<{
-    ok: boolean
-    inserted: number
-    durationMs: number
-    error?: string
-  }>
-  dbRedisKeys: (
-    id: string,
-    opts?: { pattern?: string; count?: number }
-  ) => Promise<{
-    ok: boolean
-    columns?: string[]
-    rows?: unknown[][]
-    durationMs: number
-    error?: string
-  }>
-  dbRedisKey: (
-    id: string,
-    key: string
-  ) => Promise<{
-    ok: boolean
-    columns?: string[]
-    rows?: unknown[][]
-    durationMs: number
-    error?: string
-  }>
-  dbHistory: (connectionId?: string) => Promise<DbQueryHistoryItem[]>
-  dbPickSqliteFile: () => Promise<string | null>
-  dbPickSshKey: () => Promise<string | null>
-  dbGetAccessInfo: (id: string) => Promise<{
-    ok: boolean
-    info?: DbAccessInfo
-    error?: string
-  }>
-
-  // Window
-  windowIsFullScreen: () => Promise<boolean>
-  windowSetFullScreen: (flag: boolean) => Promise<boolean>
-  windowToggleFullScreen: () => Promise<boolean>
-  onWindowFullScreenChange: (callback: (isFullScreen: boolean) => void) => () => void
-
-  // Text tool snapshots (JSON Diff / Formatter / Text Diff)
-  textSnapshotsList: (tool?: TextSnapshotTool) => Promise<TextSnapshot[]>
-  textSnapshotsSave: (
-    input:
-      | JsonDiffSnapshotInput
-      | JsonFormatterSnapshotInput
-      | TextDiffSnapshotInput
-  ) => Promise<TextSnapshot[]>
-  textSnapshotsUpdateLabel: (
-    id: string,
-    label: string
-  ) => Promise<TextSnapshot[]>
-  textSnapshotsDelete: (id: string) => Promise<TextSnapshot[]>
-  onTextSnapshotsUpdate: (
-    callback: (items: TextSnapshot[]) => void
-  ) => () => void
-
-  /** Native save dialog + write. Use encoding base64 for binary formats. */
-  saveTextFile: (payload: {
-    content: string
-    defaultName?: string
-    encoding?: 'utf8' | 'base64'
-    filters?: { name: string; extensions: string[] }[]
-  }) => Promise<
-    | { ok: true; path: string; name: string }
-    | { ok: false; canceled: true }
-    | { ok: false; canceled: false; error: string }
-  >
-
-  /** Render HTML → PDF. With preview:true returns base64 (no dialog); otherwise save dialog. */
-  saveHtmlAsPdf: (payload: {
-    html: string
-    defaultName?: string
-    preview?: boolean
-  }) => Promise<
-    | { ok: true; path: string; name: string }
-    | { ok: true; preview: true; base64: string }
-    | { ok: false; canceled: true }
-    | { ok: false; canceled: false; error: string }
-  >
-}
 
 export type TextSnapshotTool = 'json-diff' | 'json-formatter' | 'text-diff'
 

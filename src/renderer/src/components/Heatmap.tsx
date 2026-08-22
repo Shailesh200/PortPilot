@@ -1,6 +1,7 @@
-import { memo, useCallback } from 'react'
+import { memo, useCallback, useMemo } from 'react'
 import { usePortStore } from '../stores/portStore'
 import { useUIStore } from '../stores/uiStore'
+import { useSettingsStore } from '../stores/settingsStore'
 import { clsx } from 'clsx'
 import type { PortInfo } from '../../../shared/types'
 
@@ -65,7 +66,21 @@ const HeatCell = memo(function HeatCell({
 export function Heatmap() {
   const ports = usePortStore((s) => s.ports)
   const searchQuery = usePortStore((s) => s.searchQuery)
-  const filteredPorts = usePortStore((s) => s.filteredPorts)
+  const portView = usePortStore((s) => s.portView)
+  const filteredRaw = usePortStore((s) => s.filteredPorts)
+  const profileFilter = usePortStore((s) => s.profileFilter)
+  const hideSystemProcesses = useSettingsStore((s) => s.hideSystemProcesses)
+  const filteredPorts = useMemo(() => {
+    if (portView !== 'connections') {
+      return filteredRaw.filter((p) => p.role !== 'connection')
+    }
+    let list = ports.filter((p) => p.role !== 'connection')
+    if (hideSystemProcesses) list = list.filter((p) => !p.isSystem)
+    if (profileFilter.length > 0) {
+      list = list.filter((p) => profileFilter.includes(p.port))
+    }
+    return list
+  }, [portView, filteredRaw, ports, hideSystemProcesses, profileFilter])
   const selectedIndex = usePortStore((s) => s.selectedIndex)
   const isQuickPeekOpen = useUIStore((s) => s.isQuickPeekOpen)
   const quickPeekPid = useUIStore((s) => s.quickPeekPid)

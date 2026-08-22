@@ -2,7 +2,9 @@ import { useEffect, useMemo, useState } from 'react'
 import { Trash2 } from 'lucide-react'
 import { clsx } from 'clsx'
 import type { ClipboardItem } from '../../../../shared/types'
+import { detectSmartPaste } from '../../../../shared/smart-paste'
 import { useUIStore } from '../../stores/uiStore'
+import { useHandoffStore } from '../../stores/handoffStore'
 import { useTextToolSessionStore } from '../../stores/textToolSessionStore'
 import { ModuleFrame } from '../../shell/ModuleFrame'
 import { ToolButton, ToolToggle } from '../text/tools/toolUi'
@@ -46,6 +48,10 @@ export function ClipboardModule() {
   }, [items, query])
 
   const selected = filtered.find((i) => i.id === selectedId) || filtered[0]
+  const smartHints = useMemo(
+    () => (selected ? detectSmartPaste(selected.text) : []),
+    [selected]
+  )
 
   const deleteItem = async (id: string) => {
     const next = await window.api.clipboardDelete(id)
@@ -156,12 +162,25 @@ export function ClipboardModule() {
         <div className="flex flex-col min-h-0 p-4">
           {selected ? (
             <>
-              <div className="mb-3 flex items-center gap-2">
+              <div className="mb-3 flex flex-wrap items-center gap-2">
                 <ToolButton
                   onClick={() => void window.api.clipboardWrite(selected.text)}
                 >
                   Copy
                 </ToolButton>
+                {smartHints.map((h) => (
+                  <ToolButton
+                    key={h.tool}
+                    onClick={() => {
+                      useHandoffStore.getState().navigateWithPayload(
+                        { module: 'text', screen: h.tool },
+                        selected.text
+                      )
+                    }}
+                  >
+                    {h.label}
+                  </ToolButton>
+                ))}
                 <ToolButton
                   onClick={async () => {
                     setItems(

@@ -16,7 +16,7 @@ import {
   updateGlobalShortcut
 } from './ipc'
 import { createTray, destroyTray } from './tray'
-import { initAutoUpdater } from './updater'
+import { initAutoUpdater, installUpdateAndQuit } from './updater'
 import { openExternal, setNotificationClickHandler, userDataFile, loadAppNativeImage, resolveAppIconPath } from './os'
 import { shutdownWorkbench } from './modules/workbench-ipc'
 import { DEFAULT_SETTINGS } from '../shared/defaults'
@@ -24,10 +24,12 @@ import { IpcEvent } from '../shared/ipc'
 import { sendEvent } from './ipc-handle'
 import log from './logger'
 
-crashReporter.start({
-  submitURL: '',
-  uploadToServer: false
-})
+if (!process.mas) {
+  crashReporter.start({
+    submitURL: '',
+    uploadToServer: false
+  })
+}
 
 const processBootAt = Date.now()
 const benchEnabled = process.env.PORTPILOT_BENCH === '1'
@@ -192,10 +194,7 @@ function createWindow(): void {
   }
 
   startPortPolling(mainWindow)
-
-  if (!is.dev) {
-    initAutoUpdater(mainWindow)
-  }
+  initAutoUpdater(mainWindow)
 }
 
 function registerGlobalShortcuts(): void {
@@ -303,6 +302,12 @@ if (!gotSingleInstanceLock) {
     stopPortPolling()
     globalShortcut.unregisterAll()
     destroyTray()
-    void shutdownWorkbench().finally(() => app.exit(0))
+    void shutdownWorkbench().finally(() => {
+      // app.exit() skips Electron's quit hooks, so electron-updater
+      // never swaps in the downloaded binary. Quit normally after cleanup
+      // so a pending update can install.
+      if (installUpdateAndQuit()) return
+      app.quit()
+    })
   })
 }

@@ -3,10 +3,9 @@ import {
   killProcess,
   openInBrowser,
   openInTerminal,
-  restartProcess,
-  showMessageBox,
-  loadTrayNativeImage
-} from './os'
+  restartProcess
+} from './services/process-manager'
+import { showMessageBox, loadTrayNativeImage } from './os'
 import { IpcEvent } from '../shared/ipc'
 import { sendEvent } from './ipc-handle'
 import { markExpectedStopsForPid } from './services/expected-stops'
@@ -117,11 +116,19 @@ function clipPreview(text: string, max = 36): string {
   return `${oneLine.slice(0, max - 1)}…`
 }
 
+function listenersOnly(ports: PortInfo[]): PortInfo[] {
+  const hideSystem = getSafetySettings().hideSystemProcesses
+  return ports.filter((p) => {
+    if (p.role === 'connection') return false
+    if (hideSystem && p.isSystem) return false
+    return true
+  })
+}
+
 function portsSubmenu(
   ports: PortInfo[],
   profiles: Profile[]
 ): Electron.MenuItemConstructorOptions[] {
-  const shown = ports.slice(0, 10)
   const highCpu = ports.filter((p) => p.cpu > 50).length
 
   const items: Electron.MenuItemConstructorOptions[] = [
@@ -138,32 +145,20 @@ function portsSubmenu(
     })
   }
 
-  if (shown.length === 0) {
-    items.push(
-      { type: 'separator' },
-      { label: 'No listening ports', enabled: false }
-    )
+  if (ports.length === 0) {
+    items.push({ label: 'No listening ports', enabled: false })
     return items
   }
 
   items.push({ type: 'separator' })
-  for (const port of shown) {
+  for (const port of ports) {
     const name = port.projectName || port.command
+    const runtime = port.runtime ? ` · ${port.runtime}` : ''
     items.push({
       label: `:${port.port}  ${name}`,
-      sublabel: `PID ${port.pid} · ${port.cpu.toFixed(0)}% CPU`,
-      submenu: portActionsSubmenu(port, profiles, { includeStats: true })
+      sublabel: `PID ${port.pid} · ${port.cpu.toFixed(0)}% CPU${runtime}`,
+      submenu: portActionsSubmenu(port, profiles)
     })
-  }
-
-  if (ports.length > shown.length) {
-    items.push(
-      { type: 'separator' },
-      {
-        label: `Show all ${ports.length} in app…`,
-        click: () => navigateFromTray({ module: 'ports', screen: 'dashboard' })
-      }
-    )
   }
 
   return items
@@ -245,8 +240,7 @@ function clipboardSubmenu(
 
 function portActionsSubmenu(
   port: PortInfo,
-  profiles: Profile[],
-  opts: { includeStats?: boolean } = {}
+  profiles: Profile[]
 ): Electron.MenuItemConstructorOptions[] {
   const protectedPort = isProtected(port)
   const items: Electron.MenuItemConstructorOptions[] = [
@@ -259,48 +253,37 @@ function portActionsSubmenu(
       click: () => {
         void openInTerminal(port.pid, port.projectPath)
       }
-    },
-    {
-      label: protectedPort ? 'Restart Port (protected)' : 'Restart Port',
-      enabled: !protectedPort,
-      click: async () => {
-        const ok = await confirmTrayAction(
-          'Restart Port',
-          `Restart :${port.port} (${port.command}, PID ${port.pid})?`
-        )
-        if (!ok) return
-        markExpectedStopsForPid(port.pid, getLastPorts())
-        await restartProcess(port.pid, port.projectPath)
-      }
-    },
-    {
-      label: protectedPort ? 'Kill Process (protected)' : 'Kill Process',
-      enabled: !protectedPort,
-      click: async () => {
-        const ok = await confirmTrayAction(
-          'Kill Process',
-          `Kill :${port.port} (${port.command}, PID ${port.pid})?`
-        )
-        if (!ok) return
-        markExpectedStopsForPid(port.pid, getLastPorts())
-        await killProcess(port.pid)
-      }
-    },
-    addToProfileMenuItem(port, profiles)
+    }
   ]
-  if (opts.includeStats) {
+  if (!protectedPort) {
     items.push(
-      { type: 'separator' as const },
       {
-        label: `PID: ${port.pid}`,
-        enabled: false
+        label: 'Restart Port',
+        click: async () => {
+          const ok = await confirmTrayAction(
+            'Restart Port',
+            `Restart :${port.port} (${port.command}, PID ${port.pid})?`
+          )
+          if (!ok) return
+          markExpectedStopsForPid(port.pid, getLastPorts())
+          await restartProcess(port.pid, port.projectPath)
+        }
       },
       {
-        label: `CPU: ${port.cpu.toFixed(1)}%  MEM: ${port.memory.toFixed(1)}%`,
-        enabled: false
+        label: 'Kill Process',
+        click: async () => {
+          const ok = await confirmTrayAction(
+            'Kill Process',
+            `Kill :${port.port} (${port.command}, PID ${port.pid})?`
+          )
+          if (!ok) return
+          markExpectedStopsForPid(port.pid, getLastPorts())
+          await killProcess(port.pid)
+        }
       }
     )
   }
+  items.push(addToProfileMenuItem(port, profiles))
   return items
 }
 
@@ -430,9 +413,10 @@ function menuSignature(
 }
 
 function updateTray(ports: PortInfo[], force = false): void {
+  const listening = listenersOnly(ports)
   const { profiles } = loadProfilesState()
   const openAtLogin = app.getLoginItemSettings().openAtLogin
-  const signature = menuSignature(ports, profiles, openAtLogin)
+  const signature = menuSignature(listening, profiles, openAtLogin)
 
   // setContextMenu closes the menu if the user has it open (macOS limitation),
   // so rebuilding on every poll yanks the menu away mid-click. Only rebuild
@@ -440,21 +424,21 @@ function updateTray(ports: PortInfo[], force = false): void {
   if (!force && signature === lastMenuSignature) return
   lastMenuSignature = signature
 
-  syncDockMenu(ports, profiles)
+  syncDockMenu(listening, profiles)
 
   if (!tray || tray.isDestroyed()) return
 
   try {
-    tray.setContextMenu(buildContextMenu(ports, profiles, openAtLogin))
+    tray.setContextMenu(buildContextMenu(listening, profiles, openAtLogin))
 
-    const title = ports.length > 0 ? `${ports.length}` : ''
+    const title = listening.length > 0 ? `${listening.length}` : ''
     tray.setTitle(title, { fontType: 'monospacedDigit' })
 
-    const hasWarning = ports.some((p) => p.cpu > 80)
+    const hasWarning = listening.some((p) => p.cpu > 80)
     tray.setToolTip(
       hasWarning
-        ? `PortPilot — ${ports.length} ports (⚠ high CPU)`
-        : `PortPilot — ${ports.length} ports`
+        ? `PortPilot — ${listening.length} ports (⚠ high CPU)`
+        : `PortPilot — ${listening.length} ports`
     )
   } catch {
     // tray update is best-effort

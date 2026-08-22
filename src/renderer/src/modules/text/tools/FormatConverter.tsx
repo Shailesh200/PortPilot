@@ -19,6 +19,7 @@ import { WorkspaceToolbar } from '../../../shell/WorkspaceToolbar'
 import { useSettingsStore } from '../../../stores/settingsStore'
 import { useUIStore } from '../../../stores/uiStore'
 import { useTextToolSessionStore } from '../../../stores/textToolSessionStore'
+import { useHandoffPayload } from '../../../hooks/useHandoffPayload'
 import {
   ToolButton,
   ToolDivider,
@@ -27,6 +28,10 @@ import {
   ToolToolbar
 } from './toolUi'
 import { ToolFullscreenShell, ToolImmersiveButton } from './ToolWorkspaceExtras'
+import {
+  FillCodeMirror,
+  useLazyCodeMirror
+} from '../../../lib/lazyCodeMirror'
 import {
   portpilotEditorTheme,
   portpilotHighlight
@@ -59,10 +64,6 @@ import { PreviewViewport } from './PreviewViewport'
 const FILE_ACCEPT =
   '.json,.yaml,.yml,.toml,.xml,.csv,.tsv,.md,.markdown,.txt,.html,.htm,.pdf,.doc,.docx,.xls,.xlsx,application/json,text/csv,text/yaml,text/xml,text/markdown,text/plain,text/html,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel'
 
-/** Fill parent and let CodeMirror's scroller own overflow. */
-const CM_FILL =
-  'absolute inset-0 min-h-0 overflow-hidden [&_.cm-editor]:h-full [&_.cm-editor]:max-h-full [&_.cm-scroller]:overflow-auto'
-
 type CmBundle = {
   CodeMirror: typeof import('@uiw/react-codemirror').default
   html: typeof import('@codemirror/lang-html').html
@@ -77,115 +78,43 @@ type CmBundle = {
   cmPlaceholder: typeof import('@codemirror/view').placeholder
 }
 
-function useCodeMirrorBundle() {
-  const [cm, setCm] = useState<CmBundle | null>(null)
-  useEffect(() => {
-    let cancelled = false
-    void (async () => {
-      const [
-        cmMod,
-        htmlMod,
-        jsonMod,
-        yamlMod,
-        xmlMod,
-        mdMod,
-        langMod,
-        tomlMod,
-        stateMod,
-        viewMod
-      ] = await Promise.all([
-        import('@uiw/react-codemirror'),
-        import('@codemirror/lang-html'),
-        import('@codemirror/lang-json'),
-        import('@codemirror/lang-yaml'),
-        import('@codemirror/lang-xml'),
-        import('@codemirror/lang-markdown'),
-        import('@codemirror/language'),
-        import('@codemirror/legacy-modes/mode/toml'),
-        import('@codemirror/state'),
-        import('@codemirror/view')
-      ])
-      if (cancelled) return
-      setCm({
-        CodeMirror: cmMod.default,
-        html: htmlMod.html,
-        json: jsonMod.json,
-        yamlLang: yamlMod.yaml,
-        xml: xmlMod.xml,
-        markdown: mdMod.markdown,
-        StreamLanguage: langMod.StreamLanguage,
-        toml: tomlMod.toml,
-        EditorState: stateMod.EditorState,
-        EditorView: viewMod.EditorView,
-        cmPlaceholder: viewMod.placeholder
-      })
-    })()
-    return () => {
-      cancelled = true
-    }
-  }, [])
-  return cm
-}
-
-/**
- * CodeMirror only scrolls when it has a real pixel height. Percentage heights
- * often collapse in nested flex panes, so we measure the host with ResizeObserver.
- */
-function FillCodeMirror({
-  value,
-  extensions,
-  onChange,
-  editable = true,
-  CodeMirror
-}: {
-  value: string
-  extensions: Extension[]
-  onChange?: (v: string) => void
-  editable?: boolean
-  CodeMirror: CmBundle['CodeMirror']
-}) {
-  const hostRef = useRef<HTMLDivElement>(null)
-  const [heightPx, setHeightPx] = useState(0)
-
-  useEffect(() => {
-    const el = hostRef.current
-    if (!el) return
-    const apply = () => {
-      const next = Math.max(0, Math.floor(el.getBoundingClientRect().height))
-      setHeightPx((prev) => (prev === next ? prev : next))
-    }
-    apply()
-    const ro = new ResizeObserver(apply)
-    ro.observe(el)
-    return () => ro.disconnect()
-  }, [])
-
-  return (
-    <div ref={hostRef} className="h-full min-h-0 w-full overflow-hidden">
-      {heightPx > 0 && (
-        <CodeMirror
-          value={value}
-          height={`${heightPx}px`}
-          maxHeight={`${heightPx}px`}
-          theme="none"
-          basicSetup={{
-            foldGutter: true,
-            highlightActiveLine: editable,
-            highlightSelectionMatches: false
-          }}
-          extensions={extensions}
-          editable={editable}
-          onChange={onChange}
-          style={{
-            height: heightPx,
-            maxHeight: heightPx,
-            overflow: 'hidden'
-          }}
-          className="[&_.cm-editor]:h-full [&_.cm-editor]:outline-none [&_.cm-scroller]:!overflow-auto"
-        />
-      )}
-    </div>
-  )
+async function loadFormatConverterCm(): Promise<CmBundle> {
+  const [
+    cmMod,
+    htmlMod,
+    jsonMod,
+    yamlMod,
+    xmlMod,
+    mdMod,
+    langMod,
+    tomlMod,
+    stateMod,
+    viewMod
+  ] = await Promise.all([
+    import('@uiw/react-codemirror'),
+    import('@codemirror/lang-html'),
+    import('@codemirror/lang-json'),
+    import('@codemirror/lang-yaml'),
+    import('@codemirror/lang-xml'),
+    import('@codemirror/lang-markdown'),
+    import('@codemirror/language'),
+    import('@codemirror/legacy-modes/mode/toml'),
+    import('@codemirror/state'),
+    import('@codemirror/view')
+  ])
+  return {
+    CodeMirror: cmMod.default,
+    html: htmlMod.html,
+    json: jsonMod.json,
+    yamlLang: yamlMod.yaml,
+    xml: xmlMod.xml,
+    markdown: mdMod.markdown,
+    StreamLanguage: langMod.StreamLanguage,
+    toml: tomlMod.toml,
+    EditorState: stateMod.EditorState,
+    EditorView: viewMod.EditorView,
+    cmPlaceholder: viewMod.placeholder
+  }
 }
 
 function downloadBasename(importName: string | null, to: Fmt): string {
@@ -302,9 +231,14 @@ export function FormatConverter() {
   const [outputDocxLoading, setOutputDocxLoading] = useState(false)
   const [outputDocxError, setOutputDocxError] = useState<string | null>(null)
   const fileRef = useRef<HTMLInputElement>(null)
+
+  useHandoffPayload((payload) => {
+    setInput(payload)
+    setFrom('json')
+  })
   const outputPdfGenRef = useRef(0)
   const outputDocxGenRef = useRef(0)
-  const cm = useCodeMirrorBundle()
+  const cm = useLazyCodeMirror(loadFormatConverterCm)
   const [toOptions, setToOptions] = useState<Fmt[]>(() => [...CONVERSIONS[from]])
   const [canSwap, setCanSwap] = useState(false)
   const [result, setResult] = useState<

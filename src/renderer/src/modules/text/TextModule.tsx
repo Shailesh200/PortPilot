@@ -5,12 +5,18 @@ import {
   Terminal,
   Columns2,
   ArrowLeftRight,
+  Binary,
+  KeyRound,
+  Link2,
+  Regex,
+  Clock,
   Clipboard,
   type LucideIcon
 } from 'lucide-react'
 import { TEXT_TOOLS } from '../../../../shared/modules/registry'
 import type { TextToolId } from '../../../../shared/types'
 import { useUIStore } from '../../stores/uiStore'
+import { useSettingsStore } from '../../stores/settingsStore'
 import { CategoryLanding } from '../../shell/CategoryLanding'
 import { ModuleFrame } from '../../shell/ModuleFrame'
 
@@ -23,23 +29,44 @@ const TOOL_ICONS: Record<TextToolId, LucideIcon> = {
   'js-console': Terminal,
   'text-diff': Columns2,
   'format-converter': ArrowLeftRight,
+  'encode-decode': Binary,
+  'jwt-inspector': KeyRound,
+  'url-curl': Link2,
+  regex: Regex,
+  time: Clock,
   clipboard: Clipboard
 }
 
 const JsonFormatter = lazy(() =>
   import('./tools/JsonFormatter').then((m) => ({ default: m.JsonFormatter }))
 )
-const JsonDiff = lazy(() =>
-  import('./tools/JsonDiff').then((m) => ({ default: m.JsonDiff }))
+const CombinedDiff = lazy(() =>
+  import('./tools/CombinedDiff').then((m) => ({ default: m.CombinedDiff }))
 )
 const JsConsole = lazy(() =>
   import('./tools/JsConsole').then((m) => ({ default: m.JsConsole }))
 )
-const TextDiff = lazy(() =>
-  import('./tools/TextDiff').then((m) => ({ default: m.TextDiff }))
-)
 const FormatConverter = lazy(() =>
   import('./tools/FormatConverter').then((m) => ({ default: m.FormatConverter }))
+)
+const EncodeDecode = lazy(() =>
+  import('./tools/EncodeDecode').then((m) => ({ default: m.EncodeDecode }))
+)
+const JwtInspector = lazy(() =>
+  import('./tools/JwtInspector').then((m) => ({ default: m.JwtInspector }))
+)
+const UrlCurlInspector = lazy(() =>
+  import('./tools/UrlCurlInspector').then((m) => ({
+    default: m.UrlCurlInspector
+  }))
+)
+const RegexPlayground = lazy(() =>
+  import('./tools/RegexPlayground').then((m) => ({
+    default: m.RegexPlayground
+  }))
+)
+const TimeBench = lazy(() =>
+  import('./tools/TimeBench').then((m) => ({ default: m.TimeBench }))
 )
 const ClipboardModule = lazy(() =>
   import('../clipboard/ClipboardModule').then((m) => ({
@@ -60,13 +87,22 @@ function renderTool(id: TextToolId) {
     case 'json-formatter':
       return <JsonFormatter />
     case 'json-diff':
-      return <JsonDiff />
+    case 'text-diff':
+      return <CombinedDiff preferText={id === 'text-diff'} />
     case 'js-console':
       return <JsConsole />
-    case 'text-diff':
-      return <TextDiff />
     case 'format-converter':
       return <FormatConverter />
+    case 'encode-decode':
+      return <EncodeDecode />
+    case 'jwt-inspector':
+      return <JwtInspector />
+    case 'url-curl':
+      return <UrlCurlInspector />
+    case 'regex':
+      return <RegexPlayground />
+    case 'time':
+      return <TimeBench />
     case 'clipboard':
       return <ClipboardModule />
   }
@@ -75,8 +111,23 @@ function renderTool(id: TextToolId) {
 export function TextModule() {
   const nav = useUIStore((s) => s.nav)
   const setNav = useUIStore((s) => s.setNav)
+  const pinned = useSettingsStore((s) => s.pinnedTextTools) ?? []
+  const togglePin = useSettingsStore((s) => s.togglePinnedTextTool)
   const screen = nav.module === 'text' ? nav.screen : 'landing'
   const goTextHome = () => setNav({ module: 'text', screen: 'landing' })
+
+  const landingItems = TEXT_TOOLS.map((t) => ({
+    ...t,
+    icon: TOOL_ICONS[t.id],
+    pinned: pinned.includes(t.id)
+  })).sort((a, b) => {
+    const ai = pinned.indexOf(a.id)
+    const bi = pinned.indexOf(b.id)
+    if (ai === -1 && bi === -1) return 0
+    if (ai === -1) return 1
+    if (bi === -1) return -1
+    return ai - bi
+  })
 
   if (screen === 'landing') {
     return (
@@ -84,31 +135,31 @@ export function TextModule() {
         title="Text & Data"
         subtitle="Format, convert and inspect text"
         accent={TEXT_ACCENT}
-        items={TEXT_TOOLS.map((t) => ({
-          ...t,
-          icon: TOOL_ICONS[t.id]
-        }))}
+        items={landingItems}
         onSelect={(id) =>
           setNav({ module: 'text', screen: id as TextToolId })
         }
+        onPin={(id) => togglePin(id as TextToolId)}
       />
     )
   }
 
-  const meta = TEXT_TOOLS.find((t) => t.id === screen)
+  const meta =
+    TEXT_TOOLS.find((t) => t.id === screen) ||
+    (screen === 'text-diff'
+      ? TEXT_TOOLS.find((t) => t.id === 'json-diff')
+      : undefined)
   if (!meta) {
     return (
       <CategoryLanding
         title="Text & Data"
         subtitle="Format, convert and inspect text"
         accent={TEXT_ACCENT}
-        items={TEXT_TOOLS.map((t) => ({
-          ...t,
-          icon: TOOL_ICONS[t.id]
-        }))}
+        items={landingItems}
         onSelect={(id) =>
           setNav({ module: 'text', screen: id as TextToolId })
         }
+        onPin={(id) => togglePin(id as TextToolId)}
       />
     )
   }
@@ -127,7 +178,12 @@ export function TextModule() {
     'json-diff',
     'js-console',
     'text-diff',
-    'format-converter'
+    'format-converter',
+    'encode-decode',
+    'jwt-inspector',
+    'url-curl',
+    'regex',
+    'time'
   ]
   const variant = workspaceTools.includes(screen as TextToolId)
     ? 'workspace'

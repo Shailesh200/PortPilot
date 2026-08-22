@@ -26,6 +26,11 @@ import {
   Clock,
   Pause,
   Play,
+  Binary,
+  KeyRound,
+  Link2,
+  Regex,
+  Copy,
   type LucideIcon
 } from 'lucide-react'
 import { clsx } from 'clsx'
@@ -38,6 +43,11 @@ import type {
   TextToolId
 } from '../../../shared/types'
 import { MODULE_REGISTRY } from '../../../shared/modules/registry'
+import { nextFreePort } from '../../../shared/next-free-port'
+import { detectSmartPaste } from '../../../shared/smart-paste'
+import { looksLikeTimeQuery } from '../../../shared/time-convert'
+import { useHandoffStore } from '../stores/handoffStore'
+import { paletteCalcHits } from '../lib/paletteCalc'
 
 interface CommandItem {
   id: string
@@ -100,6 +110,11 @@ const SCREEN_ICONS: Record<string, LucideIcon> = {
   'js-console': Terminal,
   'text-diff': Columns2,
   'format-converter': ArrowLeftRight,
+  'encode-decode': Binary,
+  'jwt-inspector': KeyRound,
+  'url-curl': Link2,
+  regex: Regex,
+  time: Clock,
   clipboard: Clipboard,
   connections: Database,
   tables: Table2,
@@ -144,11 +159,12 @@ function navFor(moduleId: ModuleId, screenId: string): NavLocation | null {
         screenId === 'general' ||
         screenId === 'appearance' ||
         screenId === 'shortcuts' ||
-        screenId === 'notifications' ||
-        screenId === 'safety' ||
-        screenId === 'profiles'
+        screenId === 'safety'
       ) {
         return { module: 'settings', screen: screenId }
+      }
+      if (screenId === 'notifications' || screenId === 'profiles') {
+        return { module: 'settings', screen: 'general' }
       }
       return null
   }
@@ -248,7 +264,9 @@ export function CommandPalette() {
     const statsIntent = /cpu|usage|mem|memory|load|stats|info|show/.test(ql)
 
     for (const num of portNums) {
-      const p = allPorts.find((ap) => ap.port === num)
+      const p = allPorts.find(
+        (ap) => ap.port === num && ap.role !== 'connection'
+      )
       if (!p) continue
       const showKill = killIntent || (!killIntent && !statsIntent)
       const showStats = statsIntent || (!killIntent && !statsIntent)
@@ -279,6 +297,110 @@ export function CommandPalette() {
           }
         })
       }
+    }
+
+    const smart = detectSmartPaste(query)
+    for (const h of smart) {
+      nlpItems.push({
+        id: `smart-${h.tool}`,
+        label: h.label,
+        description: h.reason,
+        icon: SCREEN_ICONS[h.tool] ?? Hash,
+        category: 'natural',
+        keywords: `${h.reason} ${h.tool} paste`,
+        handler: () => {
+          useHandoffStore.getState().navigateWithPayload(
+            { module: 'text', screen: h.tool },
+            query.trim()
+          )
+          closeCommandPalette()
+        }
+      })
+    }
+
+    const waitM = ql.match(/\bwait(?:\s+(?:for|on|until))?\s*:?\s*(\d{2,5})\b/)
+    if (waitM) {
+      const n = parseInt(waitM[1], 10)
+      nlpItems.push({
+        id: `nlp-wait-${n}`,
+        label: `Wait for :${n}`,
+        description: 'Toast when that port starts listening',
+        icon: Clock,
+        category: 'natural',
+        keywords: `wait port ${n}`,
+        handler: () => {
+          usePortStore.getState().waitPort(n)
+          closeCommandPalette()
+        }
+      })
+    }
+
+    if (/\b(next\s+free|free(\s+port)?)\b/.test(ql)) {
+      const after = ql.match(
+        /\b(?:after|from|at)\s*:?\s*(\d{2,5})\b|\b(\d{2,5})\b/
+      )
+      const from = after
+        ? parseInt(after[1] || after[2] || '3000', 10)
+        : 3000
+      const used = allPorts
+        .filter((p) => p.role !== 'connection')
+        .map((p) => p.port)
+      const next = nextFreePort(used, from)
+      if (next != null) {
+        nlpItems.push({
+          id: `nlp-free-${from}`,
+          label: `Next free port: ${next}`,
+          description: `First unused listener at or after ${from}`,
+          icon: Hash,
+          category: 'natural',
+          keywords: `next free port after ${from}`,
+          handler: () => {
+            void (async () => {
+              await window.api.clipboardWrite(String(next))
+              addToast({ type: 'success', title: `Copied :${next}` })
+              closeCommandPalette()
+            })()
+          }
+        })
+      }
+    }
+
+    const calcHits = paletteCalcHits(query)
+    for (const hit of calcHits) {
+      nlpItems.push({
+        id: `calc-${hit.id}`,
+        label: hit.label,
+        description: hit.description,
+        icon: Copy,
+        category: 'natural',
+        keywords: `${hit.label} ${hit.value} copy now time epoch uuid base64`,
+        handler: () => {
+          void (async () => {
+            await window.api.clipboardWrite(hit.value)
+            addToast({ type: 'success', title: 'Copied', message: hit.value })
+            closeCommandPalette()
+          })()
+        }
+      })
+    }
+    if (looksLikeTimeQuery(query) || calcHits.some((h) => h.id.startsWith('time-'))) {
+      const q = query.trim()
+      const payload = /^(time|epoch|timezone|tz)$/i.test(q) ? '' : q
+      nlpItems.push({
+        id: 'open-time-bench',
+        label: 'Open Time bench',
+        description: 'UTC · IST · local · epoch · ISO',
+        icon: Clock,
+        category: 'natural',
+        keywords: 'time timezone epoch ist utc now iso convert',
+        handler: () => {
+          useHandoffStore.getState().navigateWithPayload(
+            { module: 'text', screen: 'time' },
+            payload
+          )
+          closeCommandPalette()
+        }
+      })
     }
 
     const items: CommandItem[] = []
@@ -318,7 +440,8 @@ export function CommandPalette() {
       }
     }
 
-    for (const port of filteredPorts) {
+    const actionPorts = filteredPorts.filter((p) => p.role !== 'connection')
+    for (const port of actionPorts) {
       const key = `${port.port}-${port.pid}`
       items.push(
         {
@@ -525,7 +648,10 @@ export function CommandPalette() {
       )
     }
 
-    return fuse.search(query).slice(0, 28).map((r) => r.item)
+    const smartHits = commands.filter((c) => c.category === 'natural')
+    const rest = fuse.search(query).slice(0, 28).map((r) => r.item)
+    const seen = new Set(smartHits.map((c) => c.id))
+    return [...smartHits, ...rest.filter((c) => !seen.has(c.id))].slice(0, 32)
   }, [fuse, commands, query, recentCommands])
 
   const handleKeyDown = useCallback(
@@ -609,7 +735,7 @@ export function CommandPalette() {
           <input
             ref={inputRef}
             type="text"
-            placeholder="Search tools, screens, ports…"
+            placeholder="Try now, now ist, epoch, uuid…"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             onKeyDown={handleKeyDown}

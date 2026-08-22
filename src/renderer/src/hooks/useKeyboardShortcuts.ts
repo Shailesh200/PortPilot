@@ -128,9 +128,11 @@ export function useKeyboardShortcuts() {
 
       const selectedPort = filteredPorts[selectedIndex]
       if (!selectedPort) return
+      const isConnection = selectedPort.role === 'connection'
 
       switch (e.key.toLowerCase()) {
         case 'k': {
+          if (isConnection) break
           if (settings.protectSystemPorts && selectedPort.isCritical) {
             ui.addToast({
               type: 'warning',
@@ -160,6 +162,7 @@ export function useKeyboardShortcuts() {
           break
         }
         case 'o':
+          if (isConnection) break
           void ports.openInBrowser(selectedPort.port)
           break
         case 't':
@@ -169,6 +172,7 @@ export function useKeyboardShortcuts() {
           void ports.openInVSCode(selectedPort.pid, selectedPort.projectPath)
           break
         case 'r': {
+          if (isConnection) break
           const doRestart = () => {
             useUIStore.getState().addToast({
               type: 'info',

@@ -1,7 +1,52 @@
-import { readFileSync, writeFileSync, existsSync, renameSync } from 'fs'
-import { userDataFile } from './os'
-import type { Profile, ProfilesPersistState } from '../shared/types'
+import { readFileSync, existsSync } from 'fs'
+import { userDataFile, writeJsonAtomicSilent } from './os'
+import type { Profile, ProfileWorkspace, ProfilesPersistState, TextToolId } from '../shared/types'
 import { DEFAULT_PROFILES, LEGACY_DEFAULT_PROFILE_IDS } from '../shared/defaults'
+
+const TEXT_TOOL_IDS = new Set<TextToolId>([
+  'json-formatter',
+  'json-diff',
+  'js-console',
+  'text-diff',
+  'format-converter',
+  'encode-decode',
+  'jwt-inspector',
+  'url-curl',
+  'regex',
+  'time',
+  'clipboard'
+])
+
+function normalizeWorkspace(raw: unknown): ProfileWorkspace | undefined {
+  if (!raw || typeof raw !== 'object') return undefined
+  const o = raw as Record<string, unknown>
+  const ws: ProfileWorkspace = {}
+  if (typeof o.hideSystemProcesses === 'boolean') {
+    ws.hideSystemProcesses = o.hideSystemProcesses
+  }
+  if (o.portView === 'listen' || o.portView === 'connections') {
+    ws.portView = o.portView
+  }
+  if (typeof o.groupByProject === 'boolean') {
+    ws.groupByProject = o.groupByProject
+  }
+  if (typeof o.textTool === 'string' && TEXT_TOOL_IDS.has(o.textTool as TextToolId)) {
+    ws.textTool = o.textTool as TextToolId
+  }
+  if (typeof o.connectionId === 'string' && o.connectionId) {
+    ws.connectionId = o.connectionId
+  }
+  if (typeof o.converterFrom === 'string') ws.converterFrom = o.converterFrom
+  if (typeof o.converterTo === 'string') ws.converterTo = o.converterTo
+  if (
+    o.openOnActivate === 'ports' ||
+    o.openOnActivate === 'text' ||
+    o.openOnActivate === 'database'
+  ) {
+    ws.openOnActivate = o.openOnActivate
+  }
+  return Object.keys(ws).length > 0 ? ws : undefined
+}
 
 function filePath(): string {
   return userDataFile('portpilot-profiles.json')
@@ -27,7 +72,8 @@ function normalizeProfile(p: Partial<Profile>): Profile | null {
       : [],
     filters: typeof p.filters === 'object' && p.filters ? p.filters : {},
     autoActions:
-      typeof p.autoActions === 'object' && p.autoActions ? p.autoActions : {}
+      typeof p.autoActions === 'object' && p.autoActions ? p.autoActions : {},
+    workspace: normalizeWorkspace(p.workspace)
   }
 }
 
@@ -61,11 +107,7 @@ function readFromDisk(): ProfilesPersistState {
     const state: ProfilesPersistState = { profiles, activeProfileId }
     // Persist the strip so Frontend/Backend don't keep coming back
     if (changed) {
-      try {
-        writeFileSync(p, JSON.stringify(state, null, 2), 'utf-8')
-      } catch {
-        /* ignore */
-      }
+      writeJsonAtomicSilent(p, state)
     }
     return state
   } catch {
@@ -87,26 +129,10 @@ export function loadProfilesState(): ProfilesPersistState {
 
 export function saveProfilesState(state: ProfilesPersistState): void {
   cachedState = state
-  try {
-    const target = filePath()
-    const tmp = `${target}.tmp`
-    // tmp + rename so a crash mid-write can't leave a truncated file
-    writeFileSync(
-      tmp,
-      JSON.stringify(
-        {
-          profiles: state.profiles,
-          activeProfileId: state.activeProfileId
-        },
-        null,
-        2
-      ),
-      'utf-8'
-    )
-    renameSync(tmp, target)
-  } catch {
-    /* ignore */
-  }
+  writeJsonAtomicSilent(filePath(), {
+    profiles: state.profiles,
+    activeProfileId: state.activeProfileId
+  })
 }
 
 export function addPortToProfileFile(

@@ -1,21 +1,8 @@
-import { execFile } from 'child_process'
-import { promisify } from 'util'
 import { readlinkSync } from 'fs'
 import type { PortInfo } from '../../shared/types'
-
-const execFileAsync = promisify(execFile)
-
-/** execFile that never rejects — non-zero exits and missing binaries yield empty stdout. */
-async function execFileSafe(
-  cmd: string,
-  args: string[]
-): Promise<{ stdout: string; stderr: string }> {
-  try {
-    return await execFileAsync(cmd, args)
-  } catch {
-    return { stdout: '', stderr: '' }
-  }
-}
+import { isSystemProcess } from '../../shared/system-process'
+import { runtimeLabel } from '../../shared/runtime-label'
+import { execFileSafe } from '../os/exec-file-safe'
 
 const CRITICAL_PORTS = new Set([22, 53, 80, 443, 631, 5432, 3306, 6379, 27017])
 
@@ -55,6 +42,104 @@ function isCriticalPort(port: number): boolean {
   return port < 1024 || CRITICAL_PORTS.has(port)
 }
 
+function stampSystem(port: PortInfo): PortInfo {
+  port.isSystem = isSystemProcess(port)
+  port.runtime = runtimeLabel(port.command) || port.runtime || ''
+  return port
+}
+
+function stampSystemAll(ports: PortInfo[]): PortInfo[] {
+  for (const p of ports) stampSystem(p)
+  return ports
+}
+
+function splitHostPort(raw: string): { host: string; port: number } | null {
+  const s = raw.trim()
+  const m = s.match(/^(.*):(\d+)$/)
+  if (!m) return null
+  const host = m[1].replace(/^\[|\]$/g, '') || '*'
+  const port = parseInt(m[2], 10)
+  if (!Number.isFinite(port)) return null
+  return { host, port }
+}
+
+function emptyPort(partial: {
+  port: number
+  pid: number
+  command: string
+  projectName?: string
+  projectPath?: string
+  user: string
+  address: string
+  state: string
+  cpu?: number
+  memory?: number
+  memoryRSS?: number
+  isCritical: boolean
+  role?: 'listen' | 'connection'
+  peerAddress?: string
+  peerPort?: number
+}): PortInfo {
+  return {
+    port: partial.port,
+    pid: partial.pid,
+    command: partial.command,
+    projectName: partial.projectName || '',
+    projectPath: partial.projectPath || '',
+    user: partial.user,
+    protocol: 'TCP',
+    address: partial.address || '*',
+    state: partial.state,
+    cpu: partial.cpu || 0,
+    memory: partial.memory || 0,
+    memoryRSS: partial.memoryRSS || 0,
+    tags: [],
+    isSelected: false,
+    isCritical: partial.isCritical,
+    isSystem: false,
+    role: partial.role || 'listen',
+    peerAddress: partial.peerAddress || '',
+    peerPort: partial.peerPort || 0,
+    connectionCount: 0,
+    runtime: runtimeLabel(partial.command) || ''
+  }
+}
+
+const MAX_INBOUND = 150
+
+/** Keep ESTABLISHED rows only when they talk to a local listener. Attach counts. */
+function mergeInbound(
+  listeners: PortInfo[],
+  established: PortInfo[]
+): PortInfo[] {
+  const listenPorts = new Set(listeners.map((p) => p.port))
+  const inbound = established
+    .filter((c) => listenPorts.has(c.port))
+    .slice(0, MAX_INBOUND)
+  const counts = new Map<number, number>()
+  for (const c of inbound) {
+    counts.set(c.port, (counts.get(c.port) || 0) + 1)
+  }
+  for (const p of listeners) {
+    p.role = 'listen'
+    p.connectionCount = counts.get(p.port) || 0
+  }
+  for (const c of inbound) {
+    c.role = 'connection'
+    const owner = listeners.find((l) => l.port === c.port && l.pid === c.pid)
+    if (owner) {
+      c.command = owner.command
+      c.user = owner.user
+      c.projectName = owner.projectName
+      c.projectPath = owner.projectPath
+      c.cpu = owner.cpu
+      c.memory = owner.memory
+      c.memoryRSS = owner.memoryRSS
+    }
+  }
+  return [...listeners, ...inbound]
+}
+
 export async function scanPorts(): Promise<PortInfo[]> {
   switch (process.platform) {
     case 'win32':
@@ -68,16 +153,12 @@ export async function scanPorts(): Promise<PortInfo[]> {
 
 async function scanPortsDarwin(): Promise<PortInfo[]> {
   try {
-    const { stdout } = await execFileSafe('lsof', [
-      '-iTCP',
-      '-sTCP:LISTEN',
-      '-P',
-      '-n'
-    ])
+    const { stdout } = await execFileSafe('lsof', ['-iTCP', '-P', '-n'])
     const lines = stdout.trim().split('\n')
     if (lines.length <= 1) return []
 
-    const portMap = new Map<string, PortInfo>()
+    const listenMap = new Map<string, PortInfo>()
+    const established: PortInfo[] = []
 
     for (let i = 1; i < lines.length; i++) {
       const parts = lines[i].trim().split(/\s+/)
@@ -86,46 +167,59 @@ async function scanPortsDarwin(): Promise<PortInfo[]> {
       const command = parts[0]
       const pid = parseInt(parts[1], 10)
       const user = parts[2]
+      const stateTok = parts[parts.length - 1].replace(/[()]/g, '').toUpperCase()
       const name = parts[parts.length - 2]
+      if (stateTok !== 'LISTEN' && stateTok !== 'ESTABLISHED') continue
 
-      const portMatch = name.match(/:(\d+)$/)
-      if (!portMatch) continue
+      const [localPart, peerPart] = name.split('->')
+      const local = splitHostPort(localPart || '')
+      if (!local) continue
 
-      const port = parseInt(portMatch[1], 10)
-      const address = name.replace(`:${port}`, '')
-      const key = `${pid}:${port}`
+      if (stateTok === 'LISTEN') {
+        const key = `${pid}:${local.port}`
+        if (listenMap.has(key)) continue
+        listenMap.set(
+          key,
+          emptyPort({
+            port: local.port,
+            pid,
+            command,
+            user,
+            address: local.host,
+            state: 'LISTEN',
+            isCritical: isCriticalPort(local.port)
+          })
+        )
+        continue
+      }
 
-      if (!portMap.has(key)) {
-        portMap.set(key, {
-          port,
+      const peer = splitHostPort(peerPart || '')
+      established.push(
+        emptyPort({
+          port: local.port,
           pid,
           command,
-          projectName: '',
-          projectPath: '',
           user,
-          protocol: 'TCP',
-          address: address || '*',
-          state: 'LISTEN',
-          cpu: 0,
-          memory: 0,
-          memoryRSS: 0,
-          tags: [],
-          isSelected: false,
-          isCritical: isCriticalPort(port)
+          address: local.host,
+          state: 'ESTABLISHED',
+          isCritical: isCriticalPort(local.port),
+          role: 'connection',
+          peerAddress: peer?.host || '',
+          peerPort: peer?.port || 0
         })
-      }
+      )
     }
 
-    const ports = Array.from(portMap.values())
-    if (ports.length > 0) {
+    const listeners = Array.from(listenMap.values())
+    if (listeners.length > 0) {
       await Promise.all([
-        enrichWithResourceUsage(ports),
-        enrichWithProjectNames(ports)
+        enrichWithResourceUsage(listeners),
+        enrichWithProjectNames(listeners)
       ])
     }
+    const ports = mergeInbound(listeners, established)
     pruneProjectPathCache(ports.map((p) => p.pid))
-
-    return ports.sort((a, b) => a.port - b.port)
+    return stampSystemAll(ports.sort((a, b) => a.port - b.port || a.pid - b.pid))
   } catch {
     return []
   }
@@ -178,59 +272,75 @@ async function getWindowsProcessMap(): Promise<Map<number, WindowsProcInfo>> {
 async function scanPortsWindows(): Promise<PortInfo[]> {
   try {
     const { stdout } = await execFileSafe('netstat', ['-ano', '-p', 'tcp'])
-    const entries: { pid: number; port: number; address: string }[] = []
-    const seen = new Set<string>()
+    const listenKeys = new Set<string>()
+    const listeners: PortInfo[] = []
+    const established: PortInfo[] = []
 
     for (const line of stdout.trim().split('\n')) {
-      if (!line.includes('LISTENING')) continue
       const parts = line.trim().split(/\s+/)
       if (parts.length < 5) continue
-
-      const localAddr = parts[1]
+      const proto = parts[0].toUpperCase()
+      if (proto !== 'TCP') continue
+      const state = parts[3].toUpperCase()
       const pid = parseInt(parts[4], 10)
       if (isNaN(pid) || pid === 0) continue
+      const local = splitHostPort(parts[1])
+      if (!local) continue
 
-      const addrParts = localAddr.split(':')
-      const port = parseInt(addrParts[addrParts.length - 1], 10)
-      const address = addrParts.slice(0, -1).join(':') || '0.0.0.0'
-      if (isNaN(port)) continue
+      if (state === 'LISTENING' || state === 'LISTEN') {
+        const key = `${pid}:${local.port}`
+        if (listenKeys.has(key)) continue
+        listenKeys.add(key)
+        listeners.push(
+          emptyPort({
+            port: local.port,
+            pid,
+            command: 'unknown',
+            projectName: 'unknown',
+            user: 'unknown',
+            address: local.host || '0.0.0.0',
+            state: 'LISTEN',
+            isCritical: isCriticalPort(local.port)
+          })
+        )
+        continue
+      }
 
-      const key = `${pid}:${port}`
-      if (seen.has(key)) continue
-      seen.add(key)
-      entries.push({ pid, port, address })
+      if (state !== 'ESTABLISHED') continue
+      const peer = splitHostPort(parts[2])
+      established.push(
+        emptyPort({
+          port: local.port,
+          pid,
+          command: 'unknown',
+          projectName: 'unknown',
+          user: 'unknown',
+          address: local.host,
+          state: 'ESTABLISHED',
+          isCritical: isCriticalPort(local.port),
+          role: 'connection',
+          peerAddress: peer?.host || '',
+          peerPort: peer?.port || 0
+        })
+      )
     }
 
-    if (entries.length === 0) return []
+    if (listeners.length === 0) return []
 
     const procMap = await getWindowsProcessMap()
+    for (const p of [...listeners, ...established]) {
+      const info = procMap.get(p.pid)
+      if (!info) continue
+      p.command = info.name
+      p.projectName = info.name
+      p.cpu = info.cpu
+      p.memoryRSS = info.memoryKB
+    }
 
-    const ports = entries
-      .map(({ pid, port, address }) => {
-        const info = procMap.get(pid)
-        return {
-          port,
-          pid,
-          command: info?.name || 'unknown',
-          projectName: info?.name || 'unknown',
-          projectPath: '',
-          user: 'unknown',
-          protocol: 'TCP' as const,
-          address,
-          state: 'LISTEN',
-          cpu: info?.cpu || 0,
-          memory: 0,
-          memoryRSS: info?.memoryKB || 0,
-          tags: [],
-          isSelected: false,
-          isCritical: isCriticalPort(port)
-        }
-      })
-      .sort((a, b) => a.port - b.port)
-
-    await enrichWindowsProjectPaths(ports)
+    await enrichWindowsProjectPaths(listeners)
+    const ports = mergeInbound(listeners, established)
     pruneProjectPathCache(ports.map((p) => p.pid))
-    return ports
+    return stampSystemAll(ports.sort((a, b) => a.port - b.port || a.pid - b.pid))
   } catch {
     return []
   }
@@ -238,34 +348,60 @@ async function scanPortsWindows(): Promise<PortInfo[]> {
 
 async function scanPortsLinux(): Promise<PortInfo[]> {
   try {
-    const { stdout } = await execFileSafe('ss', ['-tlnp'])
-    const entries: { pid: number; port: number; address: string }[] = []
-    const seen = new Set<string>()
+    const { stdout } = await execFileSafe('ss', ['-tanp'])
+    const listeners: PortInfo[] = []
+    const established: PortInfo[] = []
+    const listenKeys = new Set<string>()
 
     for (const line of stdout.trim().split('\n').slice(1)) {
       const parts = line.trim().split(/\s+/)
       if (parts.length < 5) continue
-
-      const localAddr = parts[3]
-      const addrParts = localAddr.split(':')
-      const port = parseInt(addrParts[addrParts.length - 1], 10)
-      const address = addrParts.slice(0, -1).join(':') || '0.0.0.0'
-      if (isNaN(port)) continue
-
+      const state = parts[0].toUpperCase()
+      const local = splitHostPort(parts[3] || '')
+      if (!local) continue
       const pidMatch = line.match(/pid=(\d+)/)
       const pid = pidMatch ? parseInt(pidMatch[1], 10) : 0
       if (pid === 0) continue
 
-      const key = `${pid}:${port}`
-      if (seen.has(key)) continue
-      seen.add(key)
-      entries.push({ pid, port, address })
+      if (state === 'LISTEN') {
+        const key = `${pid}:${local.port}`
+        if (listenKeys.has(key)) continue
+        listenKeys.add(key)
+        listeners.push(
+          emptyPort({
+            port: local.port,
+            pid,
+            command: 'unknown',
+            user: 'unknown',
+            address: local.host,
+            state: 'LISTEN',
+            isCritical: isCriticalPort(local.port)
+          })
+        )
+        continue
+      }
+
+      if (state !== 'ESTAB' && state !== 'ESTABLISHED') continue
+      const peer = splitHostPort(parts[4] || '')
+      established.push(
+        emptyPort({
+          port: local.port,
+          pid,
+          command: 'unknown',
+          user: 'unknown',
+          address: local.host,
+          state: 'ESTABLISHED',
+          isCritical: isCriticalPort(local.port),
+          role: 'connection',
+          peerAddress: peer?.host || '',
+          peerPort: peer?.port || 0
+        })
+      )
     }
 
-    if (entries.length === 0) return []
+    if (listeners.length === 0) return []
 
-    // One ps call for every pid instead of one per port.
-    const pids = [...new Set(entries.map((e) => e.pid))]
+    const pids = [...new Set(listeners.map((e) => e.pid))]
     const { stdout: psOut } = await execFileSafe('ps', [
       '-p',
       pids.join(','),
@@ -290,55 +426,40 @@ async function scanPortsLinux(): Promise<PortInfo[]> {
       })
     }
 
-    const ports = entries
-      .map(({ pid, port, address }) => {
-        const info = procMap.get(pid)
-        const command = info?.command || 'unknown'
+    for (const p of listeners) {
+      const info = procMap.get(p.pid)
+      const command = info?.command || 'unknown'
+      p.command = command
+      p.user = info?.user || 'unknown'
+      p.cpu = info?.cpu || 0
+      p.memory = info?.memory || 0
+      p.memoryRSS = info?.memoryRSS || 0
 
-        let projectPath = ''
-        let projectName = command
-        const cached = getCachedProjectPath(pid)
-        if (cached != null) {
-          projectPath = cached
-          projectName = cached
-            ? extractProjectName(cached, command)
-            : command
-        } else {
-          try {
-            const cwd = readlinkSync(`/proc/${pid}/cwd`)
-            if (cwd && cwd !== '/') {
-              projectPath = cwd
-              projectName = extractProjectName(cwd, command)
-              setCachedProjectPath(pid, cwd)
-            } else {
-              setCachedProjectPath(pid, '')
-            }
-          } catch {
-            setCachedProjectPath(pid, '')
+      const cached = getCachedProjectPath(p.pid)
+      if (cached != null) {
+        p.projectPath = cached
+        p.projectName = cached ? extractProjectName(cached, command) : command
+      } else {
+        try {
+          const cwd = readlinkSync(`/proc/${p.pid}/cwd`)
+          if (cwd && cwd !== '/') {
+            p.projectPath = cwd
+            p.projectName = extractProjectName(cwd, command)
+            setCachedProjectPath(p.pid, cwd)
+          } else {
+            setCachedProjectPath(p.pid, '')
+            p.projectName = command
           }
+        } catch {
+          setCachedProjectPath(p.pid, '')
+          p.projectName = command
         }
+      }
+    }
 
-        return {
-          port,
-          pid,
-          command,
-          projectName,
-          projectPath,
-          user: info?.user || 'unknown',
-          protocol: 'TCP' as const,
-          address,
-          state: 'LISTEN',
-          cpu: info?.cpu || 0,
-          memory: info?.memory || 0,
-          memoryRSS: info?.memoryRSS || 0,
-          tags: [],
-          isSelected: false,
-          isCritical: isCriticalPort(port)
-        }
-      })
-      .sort((a, b) => a.port - b.port)
+    const ports = mergeInbound(listeners, established)
     pruneProjectPathCache(ports.map((p) => p.pid))
-    return ports
+    return stampSystemAll(ports.sort((a, b) => a.port - b.port || a.pid - b.pid))
   } catch {
     return []
   }

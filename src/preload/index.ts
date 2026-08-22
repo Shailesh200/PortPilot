@@ -1,5 +1,5 @@
 import { contextBridge } from 'electron'
-import type { IpcApi } from '../shared/types'
+import type { IpcApi } from '../shared/ipc'
 import { IpcChannel, IpcEvent } from '../shared/ipc'
 import { invoke, onEvent } from './ipc-bridge'
 
@@ -26,8 +26,13 @@ const api: IpcApi = {
   loadProfiles: () => invoke(IpcChannel.loadProfiles),
   saveProfiles: (state) => invoke(IpcChannel.saveProfiles, state),
   getAppVersion: () => invoke(IpcChannel.getAppVersion),
+  readHostsFile: () => invoke(IpcChannel.readHostsFile),
   eraseAllAppData: () => invoke(IpcChannel.eraseAllAppData),
+  getUpdateStatus: () => invoke(IpcChannel.getUpdateStatus),
+  checkForUpdates: () => invoke(IpcChannel.checkForUpdates),
+  downloadUpdate: () => invoke(IpcChannel.downloadUpdate),
   quitAndInstall: () => invoke(IpcChannel.quitAndInstall),
+  updateAutoUpdate: (enabled) => invoke(IpcChannel.updateAutoUpdate, enabled),
 
   onPortsUpdate: (callback) => onEvent(IpcEvent.portsUpdated, callback),
   onFocusSearch: (callback) =>
@@ -87,7 +92,6 @@ const api: IpcApi = {
 
   windowIsFullScreen: () => invoke(IpcChannel.windowIsFullScreen),
   windowSetFullScreen: (flag) => invoke(IpcChannel.windowSetFullScreen, flag),
-  windowToggleFullScreen: () => invoke(IpcChannel.windowToggleFullScreen),
   onWindowFullScreenChange: (callback) =>
     onEvent(IpcEvent.windowFullScreenChanged, callback),
 

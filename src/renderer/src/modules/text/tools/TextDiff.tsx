@@ -7,7 +7,7 @@ import {
   type UIEvent
 } from 'react'
 import type { Change } from 'diff'
-import { ChevronDown, ChevronUp, Eraser } from 'lucide-react'
+import { Eraser } from 'lucide-react'
 import { clsx } from 'clsx'
 import { WorkspaceToolbar } from '../../../shell/WorkspaceToolbar'
 import { useTextToolSessionStore } from '../../../stores/textToolSessionStore'
@@ -19,6 +19,7 @@ import {
   ToolToggle,
   ToolToolbar
 } from './toolUi'
+import { DiffNavControls } from './toolChrome'
 import {
   ToolFullscreenShell,
   ToolWorkspaceExtras
@@ -161,7 +162,11 @@ function InlineDiffEditor({
   )
 }
 
-export function TextDiff() {
+export function TextDiff({
+  leadingControls
+}: {
+  leadingControls?: ReactNode
+} = {}) {
   const saved = useTextToolSessionStore.getState().textDiff
   const patchSession = useTextToolSessionStore((s) => s.patchTextDiff)
 
@@ -248,6 +253,7 @@ export function TextDiff() {
     <ToolFullscreenShell>
       <WorkspaceToolbar>
         <ToolToolbar className="mb-0">
+          {leadingControls}
           <ToolToggle
             label="Split view inputs"
             checked={split}
@@ -257,25 +263,11 @@ export function TextDiff() {
             <ToolBadge tone="ok">Identical</ToolBadge>
           )}
           {!identical && changeCount > 0 && (
-            <span className="inline-flex items-center gap-0.5">
-              <ToolBadge tone="warn">{changeLabel} changed</ToolBadge>
-              <button
-                type="button"
-                title="Previous change"
-                onClick={() => goChange(-1)}
-                className="p-1.5 rounded-full text-text-secondary hover:text-text-primary hover:bg-bg-elevated"
-              >
-                <ChevronUp className="w-3.5 h-3.5" />
-              </button>
-              <button
-                type="button"
-                title="Next change"
-                onClick={() => goChange(1)}
-                className="p-1.5 rounded-full text-text-secondary hover:text-text-primary hover:bg-bg-elevated"
-              >
-                <ChevronDown className="w-3.5 h-3.5" />
-              </button>
-            </span>
+            <DiffNavControls
+              label={changeLabel}
+              onPrev={() => goChange(-1)}
+              onNext={() => goChange(1)}
+            />
           )}
           <span className="ml-auto flex items-center gap-2">
             {removedChars > 0 && (

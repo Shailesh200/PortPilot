@@ -1,8 +1,8 @@
 import { BrowserWindow, globalShortcut } from 'electron'
 import log from './logger'
 import { loadProfilesState, saveProfilesState } from './profiles-persistence'
+import { scanPorts } from './services/port-scanner'
 import {
-  scanPorts,
   getProcessDetails,
   killProcess,
   killProcesses,
@@ -10,19 +10,20 @@ import {
   openInTerminal,
   openInVSCode,
   restartProcess,
-  setAutoFocusTerminal,
-  getAppVersion,
-  eraseAllAppDataAndQuit
-} from './os'
+  setAutoFocusTerminal
+} from './services/process-manager'
+import { getAppVersion, eraseAllAppDataAndQuit } from './os'
+import { readHostsFile } from './os/hosts'
 import { markExpectedStopsForPid } from './services/expected-stops'
 import {
   processPortAlerts,
   updateAlertSettings
 } from './services/port-alerts'
-import type { PortInfo, ProfilesPersistState, Profile } from '../shared/types'
+import type { PortInfo, ProfilesPersistState, Profile, SafetySettings } from '../shared/types'
 import { registerWorkbenchIpc } from './modules/workbench-ipc'
 import { IpcChannel, IpcEvent } from '../shared/ipc'
 import { handleInvoke, sendEvent } from './ipc-handle'
+import { registerUpdaterIpc } from './updater'
 
 function markStopsForPid(pid: number): void {
   markExpectedStopsForPid(pid, lastPorts)
@@ -108,16 +109,11 @@ export function updateGlobalShortcut(shortcut: string): boolean {
   return true
 }
 
-interface SafetySettings {
-  protectSystemPorts: boolean
-  confirmDestructive: boolean
-  autoFocusTerminal: boolean
-}
-
 let safetySettings: SafetySettings = {
   protectSystemPorts: true,
   confirmDestructive: true,
-  autoFocusTerminal: true
+  autoFocusTerminal: true,
+  hideSystemProcesses: true
 }
 
 export function getSafetySettings(): SafetySettings {
@@ -131,6 +127,8 @@ export function isProtectedPid(pid: number): boolean {
 }
 
 export function registerIpcHandlers(): void {
+  registerUpdaterIpc()
+
   handleInvoke(IpcChannel.getPorts, async () => {
     lastPorts = await scanPorts()
     return lastPorts
@@ -232,12 +230,18 @@ export function registerIpcHandlers(): void {
       autoFocusTerminal:
         typeof s.autoFocusTerminal === 'boolean'
           ? s.autoFocusTerminal
-          : safetySettings.autoFocusTerminal
+          : safetySettings.autoFocusTerminal,
+      hideSystemProcesses:
+        typeof s.hideSystemProcesses === 'boolean'
+          ? s.hideSystemProcesses
+          : safetySettings.hideSystemProcesses
     }
     setAutoFocusTerminal(safetySettings.autoFocusTerminal)
   })
 
   handleInvoke(IpcChannel.getAppVersion, async () => getAppVersion())
+
+  handleInvoke(IpcChannel.readHostsFile, async () => readHostsFile())
 
   handleInvoke(IpcChannel.eraseAllAppData, () => {
     setImmediate(() => eraseAllAppDataAndQuit())
@@ -252,13 +256,6 @@ export function registerIpcHandlers(): void {
     const win = BrowserWindow.fromWebContents(event.sender)
     if (!win) return false
     win.setFullScreen(Boolean(flag))
-    return win.isFullScreen()
-  })
-
-  handleInvoke(IpcChannel.windowToggleFullScreen, (event) => {
-    const win = BrowserWindow.fromWebContents(event.sender)
-    if (!win) return false
-    win.setFullScreen(!win.isFullScreen())
     return win.isFullScreen()
   })
 
@@ -330,7 +327,11 @@ export function startPortPolling(window: BrowserWindow, intervalMs = 3000): void
             p.cpu === n.cpu &&
             p.memory === n.memory &&
             p.memoryRSS === n.memoryRSS &&
-            p.projectPath === n.projectPath
+            p.projectPath === n.projectPath &&
+            p.role === n.role &&
+            p.peerAddress === n.peerAddress &&
+            p.peerPort === n.peerPort &&
+            p.connectionCount === n.connectionCount
           )
         })
       lastPorts = ports
