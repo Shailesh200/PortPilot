@@ -1,6 +1,11 @@
 # App Store Connect — copy/paste
 
-Locale: **English (U.S.)** unless you add more languages.
+**Product page:** https://apps.apple.com/app/portpilot-desktop/id6801225932?mt=12  
+**Apple ID:** `6801225932`
+
+Paste **English (U.S.) first**. The live listing previously had only the subtitle in the Description field — that block is 4000 characters of ranking and conversion copy. Do not skip it.
+
+Then add storefronts **English (U.K.)** and **German**. Each locale has its own Description, Keywords, What’s New, and Promotional Text.
 
 Character counts are noted. Do not add extra spaces in Keywords.
 
@@ -90,25 +95,25 @@ KEYBOARD FIRST
 • Shortcuts listed in Settings
 
 PRIVACY
-PortPilot runs on your Mac. Connections go from your machine to the databases and hosts you configure. Auto-update checks GitHub Releases for new versions.
+PortPilot runs on your Mac. Connections go from your machine to the databases and hosts you configure. Mac App Store builds update through Apple. Direct GitHub builds may check GitHub Releases for a new version.
 
 Requires macOS on Apple Silicon.
 ```
 
-**Keywords** (100 bytes, commas, no spaces after commas, do not repeat the app name)
+**Keywords** (100 bytes, commas, no spaces after commas, do not repeat the app name or subtitle words)
 ```
-localhost,pid,postgres,mysql,sqlite,redis,mongodb,json,clipboard,electron,devtools,sql,ssh,vite
+monitor,kill,formatter,yaml,localhost,postgres,mysql,sqlite,redis,mongodb,clipboard,sql,ssh,json
 ```
-Count this in App Store Connect; trim from the right if it exceeds 100.
+95 bytes. Dropped `electron` and `vite` (nobody searches those for this app).
 
 **Support URL** (required)
 ```
 https://github.com/Shailesh200/PortPilot/issues
 ```
 
-**Marketing URL** (optional)
+**Marketing URL**
 ```
-https://github.com/Shailesh200/PortPilot
+https://apps.apple.com/app/portpilot-desktop/id6801225932?mt=12
 ```
 
 **Privacy Policy URL** (required)
@@ -118,9 +123,9 @@ https://github.com/Shailesh200/PortPilot/blob/main/PRIVACY.md
 ```
 Create `PRIVACY.md` in the repo before submitting (App Review checks this link).
 
-**What's New** (first version can be omitted; still useful)
+**What's New**
 ```
-First Mac App Store release of PortPilot Desktop: live port control, Text & Data tools, clipboard history, and a local database client with Keychain-backed passwords.
+The Dock icon now matches other Mac apps. After you kill or restart a few stuck processes, PortPilot may ask you to leave a rating — never on first launch, and you can skip it.
 ```
 
 ---
@@ -176,7 +181,7 @@ Declare only what the app actually does:
 | Usage Data | No | — | — |
 | Diagnostics | Crash reports stay on device unless you add a reporter | No | No |
 
-**Data Not Collected** is the honest default if you do not send telemetry. Auto-update only contacts GitHub for version metadata.
+**Data Not Collected** is the honest default if you do not send telemetry. Mac App Store updates go through Apple. Direct builds may contact GitHub for version metadata.
 
 If you choose **Data Not Collected**, do not also list clipboard as collected to Apple’s servers.
 
@@ -184,9 +189,9 @@ If you choose **Data Not Collected**, do not also list clipboard as collected to
 
 ## Screenshots and App Previews
 
-**Screenshots** — 10 slots, 16:10 (use 2560 × 1600). Files in `store-assets/screenshots/`.
+**Screenshots** — 10 slots, 16:10 (use 2560 × 1600). Files in `store-assets/screenshots/`. Keep slot 1 as “See every local port” with a tight crop on the table.
 
-**App Previews** — up to 3 videos, 15–30 seconds, 1920 × 1080, H.264 `.mov` or `.mp4`, landscape. Files in `store-assets/previews/`.
+**App Previews** — up to 3 videos, 15–30 seconds, 1920 × 1080, H.264 `.mov` or `.mp4`, landscape. Files in `store-assets/previews/`. First preview should be live row → select → kill (no feature tour).
 
 Upload order (first screenshot/preview is the one in search):
 1. Ports dashboard
@@ -199,3 +204,125 @@ Upload order (first screenshot/preview is the one in search):
 8. Clipboard
 9. Database
 10. Settings / profiles
+
+---
+
+## English (U.K.)
+
+Name, subtitle, and keywords can match U.S. (developers search in the same terms). Use this Description / What’s New / Promotional Text so the storefront is localised.
+
+**Promotional Text** (170)
+```
+Signed Mac app for local ports, processes, clipboard, and databases. Kill a stuck :3000, format JSON, or query Postgres — without leaving one window.
+```
+
+**Description**
+```
+PortPilot is a local developer workstation for macOS. Watch every port on your machine, control the process behind it, and keep text, clipboard, and database tools in the same app.
+
+PORTS AND PROCESSES
+• Live table of listening ports with PID, CPU, memory, and project path
+• Kill or restart a process without hunting in Activity Monitor
+• Open localhost in the browser, jump to the terminal tab, or open the project in VS Code or Cursor
+• Heatmap to spot port collisions
+• Batch select to kill or restart many ports at once
+• Menu bar tray for a quick look at what is running
+• Profiles for favourites, filters, and per-project setups
+
+TEXT AND DATA
+• JSON formatter and JSON diff
+• Text diff
+• JavaScript console
+• Convert JSON, YAML, CSV, Markdown, HTML, PDF, DOCX, and XLSX
+• Searchable clipboard history for copied text, JSON, and URLs
+
+DATABASE
+• Postgres, MySQL, SQLite, Turso (libSQL), Redis, and MongoDB
+• Optional SSH tunnels
+• SQL editor, table browser, and query history
+• Passwords stay in the macOS Keychain, with an in-memory cache for the current session. Uncheck “Save password for next launch” to keep a password only until you quit.
+
+KEYBOARD FIRST
+• Global launcher (default: Option-Command-P)
+• Command palette (Command-K) across ports, clipboard, and tools
+• Shortcuts listed in Settings
+
+PRIVACY
+PortPilot runs on your Mac. Connections go from your machine to the databases and hosts you configure. Mac App Store builds update through Apple.
+
+Requires macOS on Apple Silicon.
+```
+
+**Keywords** — same as English (U.S.)
+
+**What's New**
+```
+The Dock icon now matches other Mac apps. After you kill or restart a few stuck processes, PortPilot may ask you to leave a rating — never on first launch, and you can skip it.
+```
+
+---
+
+## German (Deutschland)
+
+**Name** (30) — keep
+```
+PortPilot Desktop
+```
+
+**Subtitle** (30)
+```
+Ports, Prozesse, Datenbanken
+```
+28 characters.
+
+**Promotional Text** (170)
+```
+Mac-App für lokale Ports, Prozesse, Zwischenablage und Datenbanken. Beende :3000, formatiere JSON oder frage Postgres ab — in einem Fenster.
+```
+
+**Description**
+```
+PortPilot ist ein lokaler Entwickler-Arbeitsplatz für macOS. Sieh jeden Port auf dem Mac, steuere den Prozess dahinter und behalte Text-, Zwischenablage- und Datenbank-Werkzeuge in einer App.
+
+PORTS UND PROZESSE
+• Live-Tabelle der lauschenden Ports mit PID, CPU, Speicher und Projektpfad
+• Prozess beenden oder neu starten, ohne in der Aktivitätsanzeige zu suchen
+• Localhost im Browser öffnen, zum Terminal-Tab springen oder das Projekt in VS Code oder Cursor öffnen
+• Heatmap für Port-Kollisionen
+• Mehrere Ports auf einmal beenden oder neu starten
+• Menüleisten-Symbol für einen schnellen Blick auf laufende Dienste
+• Profile für Favoriten, Filter und projektbezogene Setups
+
+TEXT UND DATEN
+• JSON-Formatierung und JSON-Diff
+• Text-Diff
+• JavaScript-Konsole
+• Konvertierung von JSON, YAML, CSV, Markdown, HTML, PDF, DOCX und XLSX
+• Durchsuchbare Zwischenablage für Text, JSON und URLs
+
+DATENBANK
+• Postgres, MySQL, SQLite, Turso (libSQL), Redis und MongoDB
+• Optionale SSH-Tunnel
+• SQL-Editor, Tabellenbrowser und Abfrageverlauf
+• Passwörter bleiben im macOS-Schlüsselbund, mit einem Speicher-Cache für die aktuelle Sitzung. „Passwort für den nächsten Start speichern“ deaktivieren, um ein Passwort nur bis zum Beenden zu behalten.
+
+TASTATUR ZUERST
+• Globaler Launcher (Standard: Option-Command-P)
+• Befehlspalette (Command-K) für Ports, Zwischenablage und Werkzeuge
+• Tastenkürzel unter Einstellungen
+
+DATENSCHUTZ
+PortPilot läuft auf deinem Mac. Verbindungen gehen von deinem Rechner zu den Datenbanken und Hosts, die du einrichtest. Mac-App-Store-Builds aktualisieren über Apple.
+
+Erfordert macOS auf Apple Silicon.
+```
+
+**Keywords** (100 bytes)
+```
+monitor,json,postgres,mysql,sqlite,redis,mongodb,zwischenablage,sql,ssh,yaml,localhost
+```
+
+**What's New**
+```
+Das Dock-Symbol entspricht jetzt anderen Mac-Apps. Nach ein paar beendeten oder neu gestarteten Prozessen kann PortPilot um eine Bewertung bitten — nicht beim ersten Start, und du kannst überspringen.
+```

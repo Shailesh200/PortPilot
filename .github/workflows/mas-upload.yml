@@ -42,7 +42,8 @@ jobs:
       - name: Stamp MAS versions
         env:
           MAS_SHORT_VERSION: ${{ inputs.store_version }}
-          MAS_BUNDLE_VERSION: ${{ github.run_number + 1000 }}
+          # Actions expressions have no `+`; stamp-mas-version.cjs adds 1000.
+          MAS_BUNDLE_VERSION: ${{ github.run_number }}
         run: node scripts/stamp-mas-version.cjs
 
       - name: Build renderer/main

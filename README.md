@@ -2,7 +2,7 @@
 
 A desktop utility for developers to monitor local ports and processes, and to work with text, clipboard history, and databases. Built with Electron, React, and TypeScript.
 
-Distributed as a signed, notarized Mac app and a Windows installer from [GitHub Releases](https://github.com/Shailesh200/PortPilot/releases/latest) — not the Mac App Store.
+**Mac:** install from the [Mac App Store](https://apps.apple.com/app/portpilot-desktop/id6801225932?mt=12) (this is the build that ranks on the Developer Tools chart). **Windows:** use the installer from [GitHub Releases](https://github.com/Shailesh200/PortPilot/releases/latest).
 
 ## Features
 
@@ -25,25 +25,37 @@ Distributed as a signed, notarized Mac app and a Windows installer from [GitHub 
 - **Launch on Ports** — cold start always opens the Ports dashboard; the last screen inside each module is restored when you go back to it
 - **Keyboard-first** — shortcuts in Settings → Shortcuts (source: `src/shared/shortcuts.ts`)
 - **Themes** — light and dark mode with system preference detection
-- **Auto-updater** — notified when a new GitHub Release is available
+- **Auto-updater** — Mac App Store builds update through Apple; GitHub builds are notified in-app via electron-updater
 
 ## Download
 
-Get the latest build from [GitHub Releases](https://github.com/Shailesh200/PortPilot/releases/latest). Prefer **v1.0.24+** (or the newest tag that lists a `.dmg` / `.exe`). Ignore `.blockmap` files — those are for delta updates, not installers.
+### macOS (App Store)
+
+Get **PortPilot Desktop** on the Mac App Store — signed, sandboxed, and updated through Apple:
+
+**[View on the Mac App Store](https://apps.apple.com/app/portpilot-desktop/id6801225932?mt=12)**
+
+Apple Silicon. Search the Store for “PortPilot Desktop” if the link is geo-specific.
+
+### Windows and direct Mac builds
+
+GitHub Releases still ship a notarized `.dmg` (outside the Store) and a Windows installer. Prefer **v1.0.24+**. Ignore `.blockmap` files — those are for delta updates, not installers.
 
 | Platform | File | Description |
 |----------|------|-------------|
-| macOS (Apple Silicon) | `PortPilot-x.x.x-arm64.dmg` | Disk image — drag to Applications |
-| macOS (zip) | `PortPilot-x.x.x-arm64-mac.zip` | Alternate Mac package |
+| macOS (App Store) | [PortPilot Desktop](https://apps.apple.com/app/portpilot-desktop/id6801225932?mt=12) | Recommended for Mac |
+| macOS (direct) | `PortPilot-x.x.x-arm64.dmg` | Disk image — drag to Applications |
+| macOS (zip) | `PortPilot-x.x.x-arm64-mac.zip` | Alternate direct Mac package |
 | Windows | `PortPilot-Setup-x.x.x.exe` | One-click installer |
 
-### macOS
+### macOS (direct / GitHub)
 
-1. Download the `.dmg` from [Releases](https://github.com/Shailesh200/PortPilot/releases/latest)
-2. Open it and drag **PortPilot** into Applications
-3. Open PortPilot from Applications (or Spotlight)
+1. Prefer the [Mac App Store](https://apps.apple.com/app/portpilot-desktop/id6801225932?mt=12) unless you need the GitHub build
+2. Or download the `.dmg` from [Releases](https://github.com/Shailesh200/PortPilot/releases/latest)
+3. Open it and drag **PortPilot** into Applications
+4. Open PortPilot from Applications (or Spotlight)
 
-Releases from v1.0.16 onward are signed with Developer ID and notarized. Gatekeeper should allow them without extra steps. Older unsigned copies may still need:
+Store builds update through Apple. Direct GitHub builds (v1.0.16+) are signed with Developer ID and notarized; Gatekeeper should allow them without extra steps. Older unsigned copies may still need:
 
 ```bash
 sudo xattr -rd com.apple.quarantine /Applications/PortPilot.app

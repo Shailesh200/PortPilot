@@ -1,7 +1,8 @@
 {
   "name": "port-pilot",
   "version": "1.0.27",
-  "description": "A premium developer utility for managing local ports, processes, and development workflows",
+  "description": "Kill stuck local ports, format JSON, and query databases — a developer workstation for Mac and Windows.",
+  "homepage": "https://apps.apple.com/app/portpilot-desktop/id6801225932?mt=12",
   "main": "./out/main/index.js",
   "packageManager": "bun@1.3.11",
   "scripts": {

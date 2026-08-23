@@ -19,6 +19,11 @@ export function isAppPackaged(): boolean {
   return app.isPackaged
 }
 
+/** True only for Mac App Store builds (`process.mas`). */
+export function isMacAppStore(): boolean {
+  return process.platform === 'darwin' && Boolean(process.mas)
+}
+
 export function getAppPath(): string {
   return app.getAppPath()
 }

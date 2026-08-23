@@ -1,6 +1,6 @@
 # Privacy Policy — PortPilot
 
-Last updated: 13 August 2026
+Last updated: 23 August 2026
 
 PortPilot is a desktop app that runs on your computer. It is made by Shailesh Jha.
 
@@ -15,7 +15,8 @@ Data you enter (port lists, clipboard history, database connection names, saved 
 The app talks to:
 
 - Hosts and databases **you** configure (when you connect)
-- **GitHub Releases**, to check for updates
+- **Apple** (Mac App Store builds only), to check for and install updates
+- **GitHub Releases** (direct / GitHub builds only), to check for updates
 
 We do not sell data. We do not use data for tracking across apps or websites.
 

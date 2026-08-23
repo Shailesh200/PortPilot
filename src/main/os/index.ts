@@ -17,9 +17,11 @@ export {
   userDataFile,
   getAppVersion,
   isAppPackaged,
+  isMacAppStore,
   getAppPath,
   getMacKeychainTrustPath
 } from './paths'
+export { noteSuccessfulProcessAction } from './app-review'
 export {
   encryptSecret,
   decryptSecret,

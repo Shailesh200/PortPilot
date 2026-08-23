@@ -12,7 +12,7 @@ import {
   restartProcess,
   setAutoFocusTerminal
 } from './services/process-manager'
-import { getAppVersion, eraseAllAppDataAndQuit } from './os'
+import { getAppVersion, eraseAllAppDataAndQuit, noteSuccessfulProcessAction } from './os'
 import { readHostsFile } from './os/hosts'
 import { markExpectedStopsForPid } from './services/expected-stops'
 import {
@@ -146,14 +146,18 @@ export function registerIpcHandlers(): void {
       return false
     }
     markStopsForPid(pid)
-    return killProcess(pid, force)
+    const killed = await killProcess(pid, force)
+    if (killed) noteSuccessfulProcessAction()
+    return killed
   })
 
   handleInvoke(IpcChannel.killProcesses, async (_event, pids) => {
     if (!Array.isArray(pids) || !pids.every(validatePid)) return []
     const allowed = pids.filter((pid) => !isProtectedPid(pid))
     for (const pid of allowed) markStopsForPid(pid)
-    return killProcesses(allowed)
+    const results = await killProcesses(allowed)
+    if (results.some((r) => r.success)) noteSuccessfulProcessAction()
+    return results
   })
 
   handleInvoke(IpcChannel.openInBrowser, async (_event, port) => {
@@ -191,10 +195,12 @@ export function registerIpcHandlers(): void {
       return { success: false, error: 'This is a protected system process.' }
     }
     markStopsForPid(pid)
-    return restartProcess(
+    const result = await restartProcess(
       pid,
       typeof projectPath === 'string' ? projectPath : undefined
     )
+    if (result.success) noteSuccessfulProcessAction()
+    return result
   })
 
   handleInvoke(IpcChannel.updateAlertSettings, async (_event, settings) => {

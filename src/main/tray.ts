@@ -5,7 +5,7 @@ import {
   openInTerminal,
   restartProcess
 } from './services/process-manager'
-import { showMessageBox, loadTrayNativeImage } from './os'
+import { showMessageBox, loadTrayNativeImage, noteSuccessfulProcessAction } from './os'
 import { IpcEvent } from '../shared/ipc'
 import { sendEvent } from './ipc-handle'
 import { markExpectedStopsForPid } from './services/expected-stops'
@@ -266,7 +266,8 @@ function portActionsSubmenu(
           )
           if (!ok) return
           markExpectedStopsForPid(port.pid, getLastPorts())
-          await restartProcess(port.pid, port.projectPath)
+          const restarted = await restartProcess(port.pid, port.projectPath)
+          if (restarted.success) noteSuccessfulProcessAction()
         }
       },
       {
@@ -278,7 +279,8 @@ function portActionsSubmenu(
           )
           if (!ok) return
           markExpectedStopsForPid(port.pid, getLastPorts())
-          await killProcess(port.pid)
+          const killed = await killProcess(port.pid)
+          if (killed) noteSuccessfulProcessAction()
         }
       }
     )
