@@ -162,7 +162,7 @@
     "@types/turndown": "^5.0.6",
     "@vitejs/plugin-react": "^4.5.0",
     "electron": "40.10.6",
-    "electron-builder": "^26.0.0",
+    "electron-builder": "^26.17.0",
     "electron-vite": "^5.0.0",
     "tailwindcss": "^4.1.0",
     "typescript": "^5.8.0",
