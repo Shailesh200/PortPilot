@@ -46,8 +46,6 @@ export function QuickPeek() {
   const quickPeekPid = useUIStore((s) => s.quickPeekPid)
   const closeQuickPeek = useUIStore((s) => s.closeQuickPeek)
   const addToast = useUIStore((s) => s.addToast)
-  const showConfirm = useUIStore((s) => s.showConfirm)
-  const confirmDestructive = useSettingsStore((s) => s.confirmDestructive)
   const protectSystemPorts = useSettingsStore((s) => s.protectSystemPorts)
 
   useEffect(() => {
@@ -185,7 +183,7 @@ export function QuickPeek() {
                 })
                 return
               }
-              const doKill = async () => {
+              void (async () => {
                 const success = await killPort(port.pid)
                 addToast({
                   type: success ? 'success' : 'error',
@@ -193,17 +191,7 @@ export function QuickPeek() {
                   message: `Port ${port.port}`
                 })
                 closeQuickPeek()
-              }
-              if (confirmDestructive) {
-                showConfirm({
-                  title: 'Kill Process',
-                  message: `Kill port ${port.port} (${port.command})?`,
-                  confirmLabel: 'Kill',
-                  onConfirm: doKill
-                })
-              } else {
-                doKill()
-              }
+              })()
             }}
             className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-danger/10 text-danger hover:bg-danger/20 text-xs font-medium transition-colors"
           >

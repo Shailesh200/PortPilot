@@ -191,8 +191,6 @@ export function CommandPalette() {
   const openModule = useUIStore((s) => s.openModule)
   const setNav = useUIStore((s) => s.setNav)
   const addToast = useUIStore((s) => s.addToast)
-  const showConfirm = useUIStore((s) => s.showConfirm)
-  const confirmDestructive = useSettingsStore((s) => s.confirmDestructive)
   const protectSystemPorts = useSettingsStore((s) => s.protectSystemPorts)
 
   useEffect(() => {
@@ -219,7 +217,7 @@ export function CommandPalette() {
         closeCommandPalette()
         return
       }
-      const doKill = async () => {
+      void (async () => {
         const success = await killPort(port.pid)
         addToast({
           type: success ? 'success' : 'error',
@@ -227,27 +225,9 @@ export function CommandPalette() {
           message: `Port ${port.port}`
         })
         closeCommandPalette()
-      }
-      if (confirmDestructive) {
-        closeCommandPalette()
-        showConfirm({
-          title: 'Kill Process',
-          message: `Kill port ${port.port} (${port.command})?`,
-          confirmLabel: 'Kill',
-          onConfirm: doKill
-        })
-      } else {
-        void doKill()
-      }
+      })()
     },
-    [
-      protectSystemPorts,
-      confirmDestructive,
-      killPort,
-      addToast,
-      closeCommandPalette,
-      showConfirm
-    ]
+    [protectSystemPorts, killPort, addToast, closeCommandPalette]
   )
 
   const commands = useMemo<CommandItem[]>(() => {

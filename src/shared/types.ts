@@ -73,7 +73,6 @@ export interface AppSettings {
   darkMode: boolean
   autoOpenBrowser: boolean
   autoFocusTerminal: boolean
-  confirmDestructive: boolean
   highlightCritical: boolean
   protectSystemPorts: boolean
   hideSystemProcesses: boolean
@@ -91,10 +90,7 @@ export interface AppSettings {
 
 export type SafetySettings = Pick<
   AppSettings,
-  | 'protectSystemPorts'
-  | 'confirmDestructive'
-  | 'autoFocusTerminal'
-  | 'hideSystemProcesses'
+  'protectSystemPorts' | 'autoFocusTerminal' | 'hideSystemProcesses'
 >
 
 export type AlertSettings = Pick<

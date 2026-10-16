@@ -13,7 +13,6 @@ export const DEFAULT_SETTINGS: AppSettings = {
   darkMode: true,
   autoOpenBrowser: false,
   autoFocusTerminal: true,
-  confirmDestructive: true,
   highlightCritical: true,
   protectSystemPorts: true,
   hideSystemProcesses: true,

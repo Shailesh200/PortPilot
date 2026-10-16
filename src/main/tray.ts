@@ -5,7 +5,7 @@ import {
   openInTerminal,
   restartProcess
 } from './services/process-manager'
-import { showMessageBox, loadTrayNativeImage, noteSuccessfulProcessAction } from './os'
+import { loadTrayNativeImage, noteSuccessfulProcessAction } from './os'
 import { IpcEvent } from '../shared/ipc'
 import { sendEvent } from './ipc-handle'
 import { markExpectedStopsForPid } from './services/expected-stops'
@@ -82,20 +82,6 @@ function addToProfileMenuItem(
 
 function isProtected(port: PortInfo): boolean {
   return getSafetySettings().protectSystemPorts && port.isCritical
-}
-
-async function confirmTrayAction(action: string, detail: string): Promise<boolean> {
-  if (!getSafetySettings().confirmDestructive) return true
-  const { response } = await showMessageBox({
-    type: 'warning',
-    buttons: ['Cancel', action],
-    defaultId: 0,
-    cancelId: 0,
-    title: action,
-    message: action,
-    detail
-  })
-  return response === 1
 }
 
 function navigateFromTray(nav: NavLocation): void {
@@ -260,11 +246,6 @@ function portActionsSubmenu(
       {
         label: 'Restart Port',
         click: async () => {
-          const ok = await confirmTrayAction(
-            'Restart Port',
-            `Restart :${port.port} (${port.command}, PID ${port.pid})?`
-          )
-          if (!ok) return
           markExpectedStopsForPid(port.pid, getLastPorts())
           const restarted = await restartProcess(port.pid, port.projectPath)
           if (restarted.success) noteSuccessfulProcessAction()
@@ -273,11 +254,6 @@ function portActionsSubmenu(
       {
         label: 'Kill Process',
         click: async () => {
-          const ok = await confirmTrayAction(
-            'Kill Process',
-            `Kill :${port.port} (${port.command}, PID ${port.pid})?`
-          )
-          if (!ok) return
           markExpectedStopsForPid(port.pid, getLastPorts())
           const killed = await killProcess(port.pid)
           if (killed) noteSuccessfulProcessAction()

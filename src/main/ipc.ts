@@ -111,7 +111,6 @@ export function updateGlobalShortcut(shortcut: string): boolean {
 
 let safetySettings: SafetySettings = {
   protectSystemPorts: true,
-  confirmDestructive: true,
   autoFocusTerminal: true,
   hideSystemProcesses: true
 }
@@ -229,10 +228,6 @@ export function registerIpcHandlers(): void {
         typeof s.protectSystemPorts === 'boolean'
           ? s.protectSystemPorts
           : safetySettings.protectSystemPorts,
-      confirmDestructive:
-        typeof s.confirmDestructive === 'boolean'
-          ? s.confirmDestructive
-          : safetySettings.confirmDestructive,
       autoFocusTerminal:
         typeof s.autoFocusTerminal === 'boolean'
           ? s.autoFocusTerminal

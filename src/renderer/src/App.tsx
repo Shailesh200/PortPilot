@@ -52,7 +52,6 @@ export default function App() {
   const refreshInterval = useSettingsStore((s) => s.refreshInterval)
   const globalShortcut = useSettingsStore((s) => s.globalShortcut)
   const protectSystemPorts = useSettingsStore((s) => s.protectSystemPorts)
-  const confirmDestructive = useSettingsStore((s) => s.confirmDestructive)
   const notifyPortChange = useSettingsStore((s) => s.notifyPortChange)
   const notifyCrash = useSettingsStore((s) => s.notifyCrash)
   const autoOpenBrowser = useSettingsStore((s) => s.autoOpenBrowser)
@@ -164,11 +163,10 @@ export default function App() {
   useEffect(() => {
     void window.api.updateSafetySettings({
       protectSystemPorts,
-      confirmDestructive,
       autoFocusTerminal,
       hideSystemProcesses
     })
-  }, [protectSystemPorts, confirmDestructive, autoFocusTerminal, hideSystemProcesses])
+  }, [protectSystemPorts, autoFocusTerminal, hideSystemProcesses])
 
   // Port start/stop/crash alerts run in main (so they work while hidden).
   useEffect(() => {

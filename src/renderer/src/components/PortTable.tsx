@@ -122,9 +122,7 @@ function ActionMenu({
   const openInVSCode = usePortStore((s) => s.openInVSCode)
   const openQuickPeek = useUIStore((s) => s.openQuickPeek)
   const addToast = useUIStore((s) => s.addToast)
-  const confirmDestructive = useSettingsStore((s) => s.confirmDestructive)
   const protectSystemPorts = useSettingsStore((s) => s.protectSystemPorts)
-  const showConfirm = useUIStore((s) => s.showConfirm)
   const profiles = useSettingsStore((s) => s.profiles)
   const addPortToProfile = useSettingsStore((s) => s.addPortToProfile)
   const requestOpenProfileCreator = useSettingsStore(
@@ -240,38 +238,25 @@ function ActionMenu({
                     'hover:bg-warning/10 text-text-secondary hover:text-warning',
                   handler: async () => {
                     onClose()
-                    const doRestart = async () => {
-                      addToast({
-                        type: 'info',
-                        title: 'Restarting...',
-                        message: `Port ${port.port} (${port.command})`
-                      })
-                      const result = await restartPort(
-                        port.pid,
-                        port.projectPath
-                      )
-                      addToast({
-                        type: result.success ? 'success' : 'error',
-                        title: result.success
-                          ? 'Process restarted'
-                          : 'Restart Failed',
-                        message: result.success
-                          ? result.hint ||
-                            `Port ${port.port} — command re-launched`
-                          : result.error || 'Unknown error'
-                      })
-                    }
-                    if (confirmDestructive) {
-                      showConfirm({
-                        title: 'Restart Process',
-                        message: `Are you sure you want to restart port ${port.port} (${port.command})?`,
-                        variant: 'warning',
-                        confirmLabel: 'Restart',
-                        onConfirm: doRestart
-                      })
-                    } else {
-                      await doRestart()
-                    }
+                    addToast({
+                      type: 'info',
+                      title: 'Restarting...',
+                      message: `Port ${port.port} (${port.command})`
+                    })
+                    const result = await restartPort(
+                      port.pid,
+                      port.projectPath
+                    )
+                    addToast({
+                      type: result.success ? 'success' : 'error',
+                      title: result.success
+                        ? 'Process restarted'
+                        : 'Restart Failed',
+                      message: result.success
+                        ? result.hint ||
+                          `Port ${port.port} — command re-launched`
+                        : result.error || 'Unknown error'
+                    })
                   }
                 },
                 {
@@ -782,8 +767,6 @@ export function PortTable() {
   const killSelected = usePortStore((s) => s.killSelected)
   const selectAll = usePortStore((s) => s.selectAll)
   const clearSelection = usePortStore((s) => s.clearSelection)
-  const confirmDestructive = useSettingsStore((s) => s.confirmDestructive)
-  const showConfirm = useUIStore((s) => s.showConfirm)
   const groupByProject = usePortStore((s) => s.groupByProject)
   const setGroupByProject = usePortStore((s) => s.setGroupByProject)
   const portView = usePortStore((s) => s.portView)
@@ -856,16 +839,7 @@ export function PortTable() {
   }
 
   const handleBulkKill = () => {
-    if (confirmDestructive) {
-      showConfirm({
-        title: 'Kill Selected Processes',
-        message: `Are you sure you want to kill ${selectedPids.size} process${selectedPids.size > 1 ? 'es' : ''}?`,
-        confirmLabel: 'Kill All',
-        onConfirm: () => killSelected()
-      })
-    } else {
-      killSelected()
-    }
+    killSelected()
   }
 
   const renderPortRow = (port: PortInfo, index: number) => (

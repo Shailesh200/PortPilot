@@ -110,7 +110,6 @@ export const useSettingsStore = create<SettingsState>()(
         darkMode: s.darkMode,
         autoOpenBrowser: s.autoOpenBrowser,
         autoFocusTerminal: s.autoFocusTerminal,
-        confirmDestructive: s.confirmDestructive,
         highlightCritical: s.highlightCritical,
         protectSystemPorts: s.protectSystemPorts,
         hideSystemProcesses: s.hideSystemProcesses,

@@ -646,7 +646,6 @@ function NotificationsSettings() {
 }
 
 function SafetySettings() {
-  const confirmDestructive = useSettingsStore((s) => s.confirmDestructive)
   const highlightCritical = useSettingsStore((s) => s.highlightCritical)
   const protectSystemPorts = useSettingsStore((s) => s.protectSystemPorts)
   const hideSystemProcesses = useSettingsStore((s) => s.hideSystemProcesses)
@@ -664,7 +663,6 @@ function SafetySettings() {
       darkMode: state.darkMode,
       autoOpenBrowser: state.autoOpenBrowser,
       autoFocusTerminal: state.autoFocusTerminal,
-      confirmDestructive: state.confirmDestructive,
       highlightCritical: state.highlightCritical,
       protectSystemPorts: state.protectSystemPorts,
       hideSystemProcesses: state.hideSystemProcesses,
@@ -773,16 +771,6 @@ function SafetySettings() {
   return (
     <div>
       <SectionHeader title="Destructive Actions" />
-
-      <SettingRow
-        label="Confirm before killing"
-        description="Show a confirmation dialog before killing a process"
-      >
-        <Switch
-          checked={confirmDestructive}
-          onChange={(v) => updateSettings({ confirmDestructive: v })}
-        />
-      </SettingRow>
 
       <SettingRow
         label="Highlight critical processes"

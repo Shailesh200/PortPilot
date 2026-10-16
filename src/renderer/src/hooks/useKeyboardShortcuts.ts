@@ -141,24 +141,13 @@ export function useKeyboardShortcuts() {
             })
             break
           }
-          const doKill = () =>
-            ports.killPort(selectedPort.pid).then((success) => {
-              useUIStore.getState().addToast({
-                type: success ? 'success' : 'error',
-                title: success ? 'Process Killed' : 'Failed',
-                message: `Port ${selectedPort.port} (${selectedPort.command})`
-              })
+          void ports.killPort(selectedPort.pid).then((success) => {
+            useUIStore.getState().addToast({
+              type: success ? 'success' : 'error',
+              title: success ? 'Process Killed' : 'Failed',
+              message: `Port ${selectedPort.port} (${selectedPort.command})`
             })
-          if (settings.confirmDestructive) {
-            ui.showConfirm({
-              title: 'Kill Process',
-              message: `Kill port ${selectedPort.port} (${selectedPort.command})?`,
-              confirmLabel: 'Kill',
-              onConfirm: doKill
-            })
-          } else {
-            doKill()
-          }
+          })
           break
         }
         case 'o':
@@ -173,36 +162,23 @@ export function useKeyboardShortcuts() {
           break
         case 'r': {
           if (isConnection) break
-          const doRestart = () => {
-            useUIStore.getState().addToast({
-              type: 'info',
-              title: 'Restarting...',
-              message: `Port ${selectedPort.port} (${selectedPort.command})`
-            })
-            ports
-              .restartPort(selectedPort.pid, selectedPort.projectPath)
-              .then((result) => {
-                useUIStore.getState().addToast({
-                  type: result.success ? 'success' : 'error',
-                  title: result.success ? 'Process restarted' : 'Restart Failed',
-                  message: result.success
-                    ? result.hint ||
-                      `Port ${selectedPort.port} — command re-launched`
-                    : result.error || 'Unknown error'
-                })
+          useUIStore.getState().addToast({
+            type: 'info',
+            title: 'Restarting...',
+            message: `Port ${selectedPort.port} (${selectedPort.command})`
+          })
+          void ports
+            .restartPort(selectedPort.pid, selectedPort.projectPath)
+            .then((result) => {
+              useUIStore.getState().addToast({
+                type: result.success ? 'success' : 'error',
+                title: result.success ? 'Process restarted' : 'Restart Failed',
+                message: result.success
+                  ? result.hint ||
+                    `Port ${selectedPort.port} — command re-launched`
+                  : result.error || 'Unknown error'
               })
-          }
-          if (settings.confirmDestructive) {
-            ui.showConfirm({
-              title: 'Restart Process',
-              message: `Restart port ${selectedPort.port} (${selectedPort.command})?`,
-              variant: 'warning',
-              confirmLabel: 'Restart',
-              onConfirm: doRestart
             })
-          } else {
-            doRestart()
-          }
           break
         }
       }
